@@ -38,6 +38,7 @@
 #include <rand.h>
 
 #include "gfx.h"
+#include "place.h"
 
 #define ROW0      1                 /* first board tile row */
 #define BOARD_C0  5                 /* first board tile col (board = 5..14) */
@@ -57,8 +58,6 @@
 #define S_SUNK  3
 
 #define NSHIP      7
-#define CELL_EMPTY 255  /* also doubles as "no ship" / NOSHIP */
-static const uint8_t ship_len[NSHIP] = {5, 4, 3, 2, 2, 1, 1};
 /* the same lengths as strings, for the fleet panel's length readout */
 static const char *const ship_len_s[NSHIP] = { "5", "4", "3", "2", "2", "1", "1" };
 static const char *const ship_name[NSHIP] = {
@@ -66,13 +65,6 @@ static const char *const ship_name[NSHIP] = {
 };
 /* short codes for the fleet panel are gone: the panel now draws ship icons
    (see mkgfx.py ship_icon()), so the three-letter acronyms are not needed. */
-
-typedef struct {
-    uint8_t own[100];
-    uint8_t st[100];
-    uint8_t hits[NSHIP];
-    uint8_t alive;
-} Board;
 
 static Board pb;   /* your waters      -- the computer shoots here */
 static Board ob;   /* enemy waters     -- you shoot here          */
@@ -194,48 +186,19 @@ static void draw_hint(void) {
     put_text(HINT, 0, "A=FIRE SEL=VIEW");
 }
 
-/* ---------- fleet placement ---------- */
-static uint8_t can_place(const Board *b, uint8_t x, uint8_t y, uint8_t len, uint8_t horiz) {
-    uint8_t k, dx, dy;
-    for (k = 0; k < len; k++) {
-        uint8_t nx = horiz ? x + k : x;
-        uint8_t ny = horiz ? y : y + k;
-        if (nx > 9 || ny > 9) return 0;
-        for (dy = 0; dy < 3; dy++)
-            for (dx = 0; dx < 3; dx++) {
-                int8_t sx = (int8_t)nx + (int8_t)dx - 1;
-                int8_t sy = (int8_t)ny + (int8_t)dy - 1;
-                if (sx < 0 || sy < 0 || sx > 9 || sy > 9) continue;
-                if (b->own[sy * 10 + sx] != CELL_EMPTY) return 0;
-            }
-    }
-    return 1;
-}
-
+/* ---------- fleet placement (rules live in place.h) ---------- */
+/* Random fleet. clear_board/place_random_one/place_ship/can_place live in
+   place.h so the placement rules are unit-testable on the host (tests/). */
 static void init_board(Board *b) {
-    uint8_t i, s;
-    for (i = 0; i < 100; i++) { b->own[i] = CELL_EMPTY; b->st[i] = S_EMPTY; }
-    for (i = 0; i < NSHIP; i++) b->hits[i] = 0;
-    b->alive = NSHIP;
+    uint8_t s;
 
-    for (s = 0; s < NSHIP; s++) {
-        uint8_t tries = 0;
-        for (;;) {
-            uint8_t horiz = rand() & 1;
-            uint8_t x = rand() % 10;
-            uint8_t y = rand() % 10;
-            if (can_place(b, x, y, ship_len[s], horiz)) {
-                uint8_t k;
-                for (k = 0; k < ship_len[s]; k++)
-                    b->own[(horiz ? y : y + k) * 10 + (horiz ? x + k : x)] = s;
-                break;
-            }
-            if (++tries > 200) {           /* pathological; start the fleet over */
-                for (i = 0; i < 100; i++) b->own[i] = CELL_EMPTY;
-                s = 0;
-                break;
-            }
-        }
+    for (;;) {                      /* retry loop: only re-entered on failure */
+        clear_board(b);
+        for (s = 0; s < NSHIP; s++)
+            if (!place_random_one(b, s)) break;      /* s < NSHIP -> failed */
+        if (s == NSHIP) return;                      /* whole fleet placed */
+        /* Pathological: a ship could not be placed after 200 tries (needs a
+           very unlucky sequence). Start the whole fleet over rather than spin. */
     }
 }
 
