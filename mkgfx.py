@@ -214,6 +214,10 @@ SHAPES = {
                "........",
                "........",
                "........"],
+  # solid block, no grid lines -> "you cannot place here" during manual placement.
+  # Deliberately a flat dark fill so it reads as a void/blocked area, clearly
+  # different from the grey ship preview drawn for a legal position.
+  'BAD': ["33333333"] * 8,
   # hollow box, transparent interior -> cursor (drawn as a sprite)
   'CURSOR': ["########",
              "#......#",
@@ -258,7 +262,7 @@ def main():
         font_map[ord(ch)] = len(tiles)
         tiles.append(encode(g[ch]))
     shape = {}
-    for name in ['CELL', 'MISS', 'HIT', 'SHIP', 'LEG_SHIP', 'LEG_HIT', 'LEG_MISS']:
+    for name in ['CELL', 'MISS', 'HIT', 'SHIP', 'LEG_SHIP', 'LEG_HIT', 'LEG_MISS', 'BAD']:
         shape[name] = len(tiles)
         rows = SHAPES[name]
         if name in ('CELL', 'MISS', 'HIT'):
@@ -304,6 +308,7 @@ def main():
     h += "#define SHIP_ICON_SUNK 2\n"
     h += "#define TILE_LEG_SHIP %d\n#define TILE_LEG_HIT %d\n#define TILE_LEG_MISS %d\n" % (
         shape['LEG_SHIP'], shape['LEG_HIT'], shape['LEG_MISS'])
+    h += "#define TILE_BAD %d\n" % shape['BAD']
     h += "#define GFX_TILE_COUNT %d\n\n" % len(tiles)
     h += carr("gfx_tiles", flat) + "\n"
     h += carr("sprite_tiles", encode(SHAPES['CURSOR'])) + "\n"

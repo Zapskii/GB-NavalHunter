@@ -215,14 +215,167 @@ static uint8_t choose_mode(void) {
     }
 }
 
-/* Manual fleet placement -- implemented in the next task. For now this just
-   fills the player board randomly and says so, so the menu wiring is testable
-   on its own. */
-static void place_fleet(void) {
-    init_board(&pb);
-    status1("RANDOM (STUB)");
+/* ---------- direction input with key-repeat ----------
+ * Without this, holding a direction moves one square per frame (~60/sec), so a
+ * normal tap overshoots by several squares and you cannot land on a neighbour.
+ * Behaviour: move immediately on press, then wait REPEAT_DELAY frames before
+ * auto-repeating every REPEAT_RATE frames (like a keyboard cursor). */
+#define REPEAT_DELAY 18   /* ~0.30 s before auto-repeat kicks in */
+#define REPEAT_RATE   9   /* then ~6.7 moves/sec while held */
+
+static uint8_t held_btn;      /* which direction is currently repeating (0 = none) */
+static uint8_t held_timer;    /* frames remaining before the next repeat */
+
+/* GBDK's Game Boy target has NO show_sprite/hide_sprite -- those exist only
+   for NES/SMS. On DMG you hide a sprite by parking it off-screen: the visible
+   Y range starts at 16, so Y = 0 draws nothing. */
+static void cursor_off(void) { move_sprite(0, 0, 0); }
+
+/* Repaint board + panel + view label for the current view. */
+static void redraw(void) {
+    draw_board();
+    draw_fleet();
+    draw_view_label();
     flush();
-    pause_frames(60);
+}
+
+/* Manual fleet placement.
+ *
+ * Walks the 7 ships in order. The player steers a preview of the ship around
+ * the board and commits it:
+ *   D-pad   move the preview (key-repeat, same feel as the firing cursor)
+ *   B       rotate horizontal <-> vertical
+ *   A       commit, if the position is legal
+ *   START   accept randomly-placed ships for everything still unplaced
+ *
+ * Legal positions show the ship in grey (TILE_SHIP); illegal ones show a solid
+ * block (TILE_BAD), so the no-touching rule is visible rather than a silent
+ * refusal. Everything already committed stays drawn on the board.
+ *
+ * Writes ONLY to pb (the player's board); the enemy's ob is placed randomly
+ * before this runs. */
+static void place_fleet(void) {
+    uint8_t s = 0;                 /* ship being placed */
+    uint8_t horiz = 1;             /* orientation: 0 = vertical */
+    uint8_t x = 0, y = 0;          /* preview origin (top-left cell) */
+
+    clear_board(&pb);
+    view = 1;                      /* placement happens on YOUR OWN waters */
+    cursor_off();
+    status1("PLACE SHIPS");
+
+    while (s < NSHIP) {
+        uint8_t len = ship_len[s];
+        uint8_t maxx = horiz ? (uint8_t)(10 - len) : 9;
+        uint8_t maxy = horiz ? 9 : (uint8_t)(10 - len);
+        uint8_t legal;
+
+        /* keep the whole hull on the board after a rotate or at the edges */
+        if (x > maxx) x = maxx;
+        if (y > maxy) y = maxy;
+        legal = can_place(&pb, x, y, len, horiz);
+
+        /* repaint: committed ships, then a preview of the ship in hand */
+        draw_board();
+        draw_fleet();
+        draw_view_label();
+        {
+            uint8_t k;
+            uint8_t t = legal ? TILE_SHIP : TILE_BAD;
+            for (k = 0; k < len; k++) {
+                uint8_t px = (uint8_t)(BOARD_C0 + (horiz ? x + k : x));
+                uint8_t py = horiz ? y : (uint8_t)(y + k);
+                paint(ROW0 + py, px, t);
+            }
+        }
+        {
+            /* status: which ship, how long, and whether it fits here */
+            char b[20];
+            uint8_t i = 0;
+            b[i++] = 'S';
+            b[i++] = (char)('0' + (s + 1));
+            b[i++] = '/';
+            b[i++] = '7';
+            b[i++] = ' ';
+            b[i++] = 'L';
+            b[i++] = (char)('0' + len);
+            b[i++] = ' ';
+            b[i++] = horiz ? 'H' : 'V';
+            b[i++] = ' ';
+            b[i] = 0;
+            clear_row(MSG);
+            put_text(MSG, 0, b);
+            put_text(MSG, 11, legal ? "OK" : "NO FIT");
+        }
+        /* context hint, since the controls differ on this screen */
+        clear_row(HINT);
+        put_text(HINT, 0, "A=OK B=TURN ST=SKIP");
+        flush();
+
+        /* ---- input ---- */
+        {
+            uint8_t j = joypad();
+
+            if (j & J_START) {                 /* randomise the remainder */
+                uint8_t ok = 1;
+                while (joypad() & J_START) wait_vbl_done();
+                /* Fill the rest at random. If one cannot be placed (very
+                   unlikely) stop rather than spin -- the fleet is then short a
+                   ship, which the panel shows honestly. */
+                for (; s < NSHIP && ok; s++)
+                    ok = place_random_one(&pb, s);
+                break;
+            }
+            if (j & J_B) {                     /* rotate */
+                while (joypad() & J_B) wait_vbl_done();
+                horiz ^= 1;
+                continue;
+            }
+            if (j & J_A) {                     /* commit */
+                while (joypad() & J_A) wait_vbl_done();
+                if (legal) {
+                    place_ship(&pb, x, y, len, horiz, s);
+                    s++;
+                    x = 0; y = 0;
+                } else {
+                    msg("TOO CLOSE");
+                    flush();
+                    pause_frames(30);
+                }
+                continue;
+            }
+
+            /* direction, with the same key-repeat feel as the firing cursor */
+            {
+                uint8_t d = j & (J_LEFT | J_RIGHT | J_UP | J_DOWN);
+                uint8_t step = 0;
+                if (d == 0) {
+                    held_btn = 0;
+                } else if (d != held_btn) {
+                    held_btn = d; held_timer = REPEAT_DELAY; step = 1;
+                } else if (held_timer) {
+                    held_timer--;
+                } else {
+                    held_timer = REPEAT_RATE; step = 1;
+                }
+                if (step) {
+                    if ((d & J_LEFT)  && x > 0)    x--;
+                    if ((d & J_RIGHT) && x < maxx) x++;
+                    if ((d & J_UP)    && y > 0)    y--;
+                    if ((d & J_DOWN)  && y < maxy) y++;
+                }
+            }
+        }
+        wait_vbl_done();
+    }
+
+    /* done: put the game's own chrome back */
+    view = 0;
+    status1("YOUR TURN");
+    msg("");
+    draw_view_label();
+    draw_hint();
+    redraw();
 }
 
 /* ---------- fleet placement (rules live in place.h) ---------- */
@@ -298,34 +451,10 @@ static void move_cursor(uint8_t x, uint8_t y) {
                    (uint8_t)((ROW0 + y) * 8 + 16));
 }
 
-/* GBDK's Game Boy target has NO show_sprite/hide_sprite -- those exist only
-   for NES/SMS. On DMG you hide a sprite by parking it off-screen: the visible
-   Y range starts at 16, so Y = 0 draws nothing. */
-static void cursor_off(void) { move_sprite(0, 0, 0); }
-
 /* The INFO row now holds only the view label (see draw_view_label). The "A01"
    target-coordinate readout and the turn counter were removed on request:
    both were unlabelled numbers that the player had to decode, and the turn
    count told them nothing actionable. */
-
-/* Repaint board + panel + view label for the current view. */
-static void redraw(void) {
-    draw_board();
-    draw_fleet();
-    draw_view_label();
-    flush();
-}
-
-/* ---------- direction input with key-repeat ----------
- * Without this, holding a direction moves one square per frame (~60/sec), so a
- * normal tap overshoots by several squares and you cannot land on a neighbour.
- * Behaviour: move immediately on press, then wait REPEAT_DELAY frames before
- * auto-repeating every REPEAT_RATE frames (like a keyboard cursor). */
-#define REPEAT_DELAY 18   /* ~0.30 s before auto-repeat kicks in */
-#define REPEAT_RATE   9   /* then ~6.7 moves/sec while held */
-
-static uint8_t held_btn;      /* which direction is currently repeating (0 = none) */
-static uint8_t held_timer;    /* frames remaining before the next repeat */
 
 void main(void) {
     uint8_t cx = 0, cy = 0;
