@@ -1,0 +1,34 @@
+# BATTLESHIP (GBDK-2020)
+GBDK_HOME ?= /opt/gbdk
+LCC        = $(GBDK_HOME)/bin/lcc
+
+# -Wm-yn sets the ROM header title.
+# DO NOT add -Wm-yc (CGB-enhanced) unless you also load CGB palettes:
+# setting the CGB flag makes the emulator use the CGB palette registers, and
+# GBDK's CRT does not initialise them -> the screen renders uniformly white.
+CFLAGS = -Wm-yn"BATTLESHIP"
+
+TARGET = battleship.gb
+SRC    = main.c
+
+all: $(TARGET)
+
+$(TARGET): $(SRC) gfx.h
+	$(LCC) $(CFLAGS) -o $(TARGET) $(SRC)
+
+# symbols for emulator debuggers
+sym: $(SRC) gfx.h
+	$(LCC) $(CFLAGS) -debug -o $(TARGET) $(SRC)
+
+# gfx.h is generated OUTSIDE this image (the slim image has no python3);
+# run `python3 mkgfx.py` on the host, then sync gfx.h in.
+gfx:
+	@echo "gfx.h is generated host-side: python3 mkgfx.py && scp gfx.h ..."
+
+usage: $(TARGET)
+	@$(GBDK_HOME)/bin/romusage $(TARGET) -g
+
+clean:
+	rm -f *.gb *.o *.lst *.map *.sym *.ihx *.asm *.cdb *.noi *.rel
+
+.PHONY: all clean sym usage
