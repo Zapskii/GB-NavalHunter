@@ -25,10 +25,17 @@ sym: $(SRC) gfx.h
 gfx:
 	@echo "gfx.h is generated host-side: python3 mkgfx.py && scp gfx.h ..."
 
+# Fleet-placement RULES, unit-tested on the host with plain gcc.
+# place.h has no GB dependencies, so this needs no emulator and runs in ~1 s.
+# Only the RENDERING of placement needs the emulator; the rules do not.
+test:
+	gcc -O1 -Wall -Wextra -I. -o $(TMPDIR)/test_place tests/test_place.c
+	$(TMPDIR)/test_place
+
 usage: $(TARGET)
 	@$(GBDK_HOME)/bin/romusage $(TARGET) -g
 
 clean:
 	rm -f *.gb *.o *.lst *.map *.sym *.ihx *.asm *.cdb *.noi *.rel
 
-.PHONY: all clean sym usage
+.PHONY: all clean sym usage test

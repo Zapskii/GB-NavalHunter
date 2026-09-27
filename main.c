@@ -20,10 +20,24 @@
  *     tile rows 13..16  : fleet panel, two columns (left 1..9, right 11..19)
  *     tile row  17      : control hint
  *
+ *   THREE SCREENS run in sequence:
+ *     1. BOOT MENU (choose_mode) -- "PLACE YOUR FLEET?"  A=RANDOM  B=MANUAL
+ *     2. MANUAL PLACEMENT (place_fleet), only if B was pressed: steers a live
+ *        preview of each ship and commits it. Board shows YOUR waters; the
+ *        fleet panel doubles as PLACEMENT PROGRESS, so it must stay blank until
+ *        a ship is committed (see status_code / ST_PLACING in draw_fleet).
+ *     3. THE GAME (below).
+ *   The boot menu draws into row 0 / 11 / 12 / 17, the same rows the game uses.
+ *
  *   SEPARATE VIEWS: you must see two sets of ships but there is only room for
  *   one board, so the board shows EITHER the enemy waters you are shelling OR
  *   your own waters. SELECT (or the automatic flip after the enemy's turn)
  *   switches between them.
+ *
+ *   CONTROLS (the hint row is context-sensitive, so it always shows the keys
+ *   that actually apply to the current screen):
+ *     game      : D-pad aim, A fire, SELECT flip view
+ *     placement : D-pad move preview, B rotate, A commit, START randomise rest
  *
  *   The cursor is an 8x8 SPRITE so it overlays a whole cell (a background
  *   tile could not do that without a second tileset), and it is hidden while
@@ -168,8 +182,11 @@ static void draw_fleet(void) {
     for (s = 0; s < NSHIP; s++) {
         uint8_t r = (uint8_t)(FLEET + (s < 4 ? s : s - 4));
         uint8_t c = (uint8_t)((s < 4 ? 0 : 10) + PANEL_IND);
-        uint8_t placed = (uint8_t)(placing ? (b->own[s * 10] != CELL_EMPTY || ship_is_placed(b, s))
-                                          : 1);
+        /* NOTE: test the ship's OWN cells only. An earlier version also checked
+           `b->own[s*10] != CELL_EMPTY` -- cell (s,0), which is meaningless and
+           just happens to be occupied by whatever ship sits there, so ships
+           showed as "placed" before they were. ship_is_placed() is the check. */
+        uint8_t placed = (uint8_t)(placing ? ship_is_placed(b, s) : 1);
         if (!placed) {                 /* not placed yet: blank the whole entry */
             uint8_t k;
             for (k = 0; k < 8; k++) paint(r, (uint8_t)(c + k), TILE_BLANK);
