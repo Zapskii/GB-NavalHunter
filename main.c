@@ -222,6 +222,78 @@ static void draw_hint(void) {
     put_text(HINT, 0, "A=FIRE SEL=VIEW");
 }
 
+/* GBDK's Game Boy target has NO show_sprite/hide_sprite -- those exist only
+   for NES/SMS. On DMG you hide a sprite by parking it off-screen: the visible
+   Y range starts at 16, so Y = 0 draws nothing. */
+static void cursor_off(void) { move_sprite(0, 0, 0); }
+
+/* ---- game over: reveal BOTH fleets ------------------------------------------
+ * Previously each end state froze with `for (;;) wait_vbl_done()`, so the enemy
+ * fleet was never shown -- the player could win without ever learning where the
+ * ships had been. This screen replaces that freeze with something browsable.
+ *
+ * It does NOT touch `view`: draw_board()'s `reveal` is derived from `view`, but
+ * we override it by repainting from the enemy board with reveal forced on. The
+ * player can flip between the two fleets, so they see both what they were
+ * hunting and what was hunting them.
+ */
+static void game_over(const char *title) {
+    uint8_t showing_own = 0;
+
+    while (joypad() & (J_A | J_B | J_START | J_SELECT)) wait_vbl_done();
+    cursor_off();
+
+    for (;;) {
+        const Board *b = showing_own ? &pb : &ob;
+        uint8_t x, y;
+
+        /* draw_fleet() reads viewed_board(), i.e. `view` -- so keep view in step
+           with what we are showing, or the panel describes one fleet while the
+           grid shows the other. */
+        view = showing_own;
+
+        status1(title);
+        msg("");
+        /* label the board underneath: whose fleet are we looking at? */
+        {
+            const char *s = showing_own ? "YOUR FLEET" : "ENEMY FLEET";
+            uint8_t len = 0, k;
+            while (s[len]) len++;
+            for (k = 0; k < 20; k++) paint(INFO, k, TILE_BLANK);
+            put_text(INFO, (uint8_t)((20 - len) / 2), s);
+        }
+        clear_row(HINT);
+        put_text(HINT, 0, "SELECT SWAP");
+
+        /* repaint the board with ALL ships revealed, regardless of hits */
+        for (y = 0; y < 10; y++)
+            for (x = 0; x < 10; x++) {
+                uint8_t i = (uint8_t)(y * 10 + x);
+                uint8_t t;
+                if (b->st[i] == S_HIT || b->st[i] == S_SUNK) t = TILE_HIT;
+                else if (b->own[i] != CELL_EMPTY)           t = TILE_SHIP;
+                else                                        t = TILE_CELL;
+                if (x == 0 || y == 0) t = edge_tile(t, x == 0, y == 0);
+                paint((uint8_t)(ROW0 + y), (uint8_t)(BOARD_C0 + x), t);
+            }
+        /* fleet panel for the board on screen */
+        draw_fleet();
+        flush();
+
+        /* wait for a keypress: SELECT/B swaps, A/START (or the other) also swaps
+           so a player mashing any button gets the reveal rather than nothing */
+        for (;;) {
+            uint8_t j = joypad();
+            if (j & (J_SELECT | J_A | J_START | J_B)) {
+                while (joypad() & j) wait_vbl_done();
+                showing_own ^= 1;
+                break;
+            }
+            wait_vbl_done();
+        }
+    }
+}
+
 /* Wait n vertical blanks (~n/60 s). Declared here, above its first use in
    place_fleet/choose_mode -- C needs it before it is called. */
 static void pause_frames(uint16_t n) { while (n--) wait_vbl_done(); }
@@ -261,11 +333,6 @@ static uint8_t choose_mode(void) {
 
 static uint8_t held_btn;      /* which direction is currently repeating (0 = none) */
 static uint8_t held_timer;    /* frames remaining before the next repeat */
-
-/* GBDK's Game Boy target has NO show_sprite/hide_sprite -- those exist only
-   for NES/SMS. On DMG you hide a sprite by parking it off-screen: the visible
-   Y range starts at 16, so Y = 0 draws nothing. */
-static void cursor_off(void) { move_sprite(0, 0, 0); }
 
 /* Repaint board + panel + view label for the current view. */
 static void redraw(void) {
@@ -625,11 +692,9 @@ void main(void) {
         draw_fleet();
         flush();
         if (ob.alive == 0) {
-            status1("YOU WIN!");
-            msg("");
-            draw_board();
-            flush();
-            for (;;) wait_vbl_done();
+            /* Player wins: reveal both fleets instead of freezing, so the player
+               can finally see where the enemy ships were. */
+            game_over("YOU WIN!");
         }
         pause_frames(45);
 
@@ -667,11 +732,8 @@ void main(void) {
         draw_fleet();
         flush();
         if (pb.alive == 0) {
-            status1("YOU LOSE");
-            msg("");
-            draw_board();
-            flush();
-            for (;;) wait_vbl_done();
+            /* Player loses: same reveal, so they can see the fleet that got them. */
+            game_over("YOU LOSE");
         }
         pause_frames(45);
 
