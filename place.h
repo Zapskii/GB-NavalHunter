@@ -59,6 +59,16 @@ static void place_ship(Board *b, uint8_t x, uint8_t y, uint8_t len,
         b->own[(horiz ? y : y + k) * 10 + (horiz ? x + k : x)] = id;
 }
 
+/* 1 if ship `s` has any cell on the board (i.e. it has been placed).
+   Used by the fleet panel during manual placement to show progress: only ships
+   already committed should appear, otherwise the panel claims a full fleet. */
+static uint8_t ship_is_placed(const Board *b, uint8_t s) {
+    uint8_t i;
+    for (i = 0; i < 100; i++)
+        if (b->own[i] == s) return 1;
+    return 0;
+}
+
 /* Empty `own` and reset `st`/`hits`/`alive` so the board is ready to place. */
 static void clear_board(Board *b) {
     uint8_t i;

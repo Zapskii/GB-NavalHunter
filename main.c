@@ -73,6 +73,13 @@ static uint8_t vram[360];
 
 /* 0 = looking at ENEMY waters (you fire), 1 = looking at YOUR waters.
    The enemy's turn forces 1 so you always watch your own fleet take the hit. */
+/* What the machine is currently doing. The fleet panel needs this: during
+   manual placement only ships already committed should be drawn, or the panel
+   advertises a full fleet the player has not placed yet. */
+#define ST_PLAYING 0
+#define ST_PLACING 1
+static uint8_t status_code = ST_PLAYING;
+
 static uint8_t view = 0;
 
 /* ---------- map painting ---------- */
@@ -153,9 +160,21 @@ static void draw_board(void) {
 static void draw_fleet(void) {
     const Board *b = viewed_board();
     uint8_t s;
+    /* During manual placement, only ships actually committed so far exist in
+       `own`, so show just those as afloat. Without this the panel reads as a
+       full fleet that the player has not placed yet -- the panel is meant to be
+       placement PROGRESS, and it lied. */
+    uint8_t placing = (status_code == ST_PLACING);
     for (s = 0; s < NSHIP; s++) {
         uint8_t r = (uint8_t)(FLEET + (s < 4 ? s : s - 4));
         uint8_t c = (uint8_t)((s < 4 ? 0 : 10) + PANEL_IND);
+        uint8_t placed = (uint8_t)(placing ? (b->own[s * 10] != CELL_EMPTY || ship_is_placed(b, s))
+                                          : 1);
+        if (!placed) {                 /* not placed yet: blank the whole entry */
+            uint8_t k;
+            for (k = 0; k < 8; k++) paint(r, (uint8_t)(c + k), TILE_BLANK);
+            continue;
+        }
         uint8_t sunk = (b->hits[s] >= ship_len[s]);
         uint8_t k;
         for (k = 0; k < 8; k++) paint(r, (uint8_t)(c + k), TILE_BLANK);
@@ -261,6 +280,7 @@ static void place_fleet(void) {
 
     clear_board(&pb);
     view = 1;                      /* placement happens on YOUR OWN waters */
+    status_code = ST_PLACING;      /* tells draw_fleet to show progress only */
     cursor_off();
     status1("PLACE SHIPS");
 
@@ -370,6 +390,7 @@ static void place_fleet(void) {
     }
 
     /* done: put the game's own chrome back */
+    status_code = ST_PLAYING;
     view = 0;
     status1("YOUR TURN");
     msg("");

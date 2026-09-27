@@ -87,6 +87,16 @@ int main(void) {
         }
     }
 
+    /* ---- ship_is_placed: the fleet panel's placement progress ---- */
+    clear_board(&b);
+    CHECK(ship_is_placed(&b, 0) == 0, "no ship placed on a clear board");
+    CHECK(ship_is_placed(&b, 6) == 0, "last ship not placed either");
+    place_ship(&b, 0, 0, 5, 1, 0);
+    CHECK(ship_is_placed(&b, 0) == 1, "ship 0 reported placed");
+    CHECK(ship_is_placed(&b, 1) == 0, "ship 1 still not placed");
+    place_ship(&b, 0, 2, 4, 1, 1);
+    CHECK(ship_is_placed(&b, 1) == 1, "ship 1 reported placed after commit");
+
     printf("test_place: %s (%d failures)\n", fails ? "FAIL" : "PASS", fails);
     return fails ? 1 : 0;
 }
