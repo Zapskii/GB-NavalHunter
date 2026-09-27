@@ -219,6 +219,10 @@ SHAPES = {
   # Deliberately a flat dark fill so it reads as a void/blocked area, clearly
   # different from the grey ship preview drawn for a legal position.
   'BAD': ["33333333"] * 8,
+  # solid block, used as one "pixel" of the big game-over lettering. Separate
+  # from BAD on purpose: same art, but the name says what it is for, so the
+  # big-font code does not read as if it were drawing "bad" cells.
+  'SOLID': ["33333333"] * 8,
   # hollow box, transparent interior -> cursor (drawn as a sprite)
   'CURSOR': ["########",
              "#......#",
@@ -263,7 +267,7 @@ def main():
         font_map[ord(ch)] = len(tiles)
         tiles.append(encode(g[ch]))
     shape = {}
-    for name in ['CELL', 'MISS', 'HIT', 'SHIP', 'LEG_SHIP', 'LEG_HIT', 'LEG_MISS', 'BAD']:
+    for name in ['CELL', 'MISS', 'HIT', 'SHIP', 'LEG_SHIP', 'LEG_HIT', 'LEG_MISS', 'BAD', 'SOLID']:
         shape[name] = len(tiles)
         rows = SHAPES[name]
         if name in ('CELL', 'MISS', 'HIT'):
@@ -310,6 +314,7 @@ def main():
     h += "#define TILE_LEG_SHIP %d\n#define TILE_LEG_HIT %d\n#define TILE_LEG_MISS %d\n" % (
         shape['LEG_SHIP'], shape['LEG_HIT'], shape['LEG_MISS'])
     h += "#define TILE_BAD %d\n" % shape['BAD']
+    h += "#define TILE_SOLID %d\n" % shape['SOLID']
     h += "#define GFX_TILE_COUNT %d\n\n" % len(tiles)
     h += carr("gfx_tiles", flat) + "\n"
     h += carr("sprite_tiles", encode(SHAPES['CURSOR'])) + "\n"

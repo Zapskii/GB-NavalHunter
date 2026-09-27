@@ -227,6 +227,94 @@ static void draw_hint(void) {
    Y range starts at 16, so Y = 0 draws nothing. */
 static void cursor_off(void) { move_sprite(0, 0, 0); }
 
+/* ---- big blocky lettering for the game-over splash --------------------------
+ * The 5x7 text font is far too small to read as a celebration, so the splash
+ * uses 4x5 letters drawn one tile per "pixel" (32x40 px each) on two lines.
+ *
+ * SIZING (the reason it is 4 wide and not 5): the screen is 20 tiles across.
+ * "LOST" is 4 glyphs; at 4 wide + 1 gap that is 4*4+3 = 19 tiles, which just
+ * fits. At 5 wide it is 23 tiles and does not fit at all.
+ */
+static const uint8_t big_glyphs[][5] = {
+    /*Y*/ {0x9,0x9,0x6,0x6,0x6},
+    /*O*/ {0x6,0x9,0x9,0x9,0x6},
+    /*U*/ {0x9,0x9,0x9,0x9,0x6},
+    /*W*/ {0x9,0x9,0xB,0xD,0x9},   /* strokes converge mid-glyph: a full
+                                     middle bar (0xF) renders as H, which is
+                                     what the first version did */
+    /*I*/ {0xF,0x6,0x6,0x6,0xF},   /* top AND bottom bars -> not a W, not a T */
+    /*N*/ {0x9,0xD,0xB,0x9,0x9},
+    /*L*/ {0x8,0x8,0x8,0x8,0xF},
+    /*S*/ {0x7,0x8,0x6,0x1,0xE},
+    /*T*/ {0xF,0x6,0x6,0x6,0x6},
+};
+/* MUST match the array order above: Y,O,U,W,I,N,L,S,T. (The first version said
+   "YOUWINSLT", which swapped L and S, so "LOST" drew as "SOLT".) */
+static const char big_chars[] = "YOUWINLST";
+#define BIG_W   4      /* glyph width in tiles  */
+#define BIG_H   5      /* glyph height in tiles */
+#define BIG_GAP 1      /* tiles between glyphs  */
+
+/* Width in tiles of an n-glyph line, and its centred start column. */
+static uint8_t big_line_w(uint8_t n) { return (uint8_t)(n * BIG_W + (n - 1) * BIG_GAP); }
+
+/* Paint ONE glyph, so the splash can reveal letters one at a time. */
+static void big_glyph(uint8_t row, uint8_t col, char ch) {
+    uint8_t i, gy, gx;
+    if (ch == ' ') return;
+    for (i = 0; big_chars[i]; i++) if (big_chars[i] == ch) break;
+    for (gy = 0; gy < BIG_H; gy++)
+        for (gx = 0; gx < BIG_W; gx++)
+            if (big_glyphs[i][gy] & (0x8 >> gx))
+                paint((uint8_t)(row + gy), (uint8_t)(col + gx), TILE_SOLID);
+}
+
+/* Full-screen "YOU WIN" / "YOU LOST" splash, then ~5 s, then the caller shows
+ * the fleet reveal. Letters appear one at a time so it reads as an animation
+ * rather than a card that pops in.
+ *
+ * Timing: 7 glyphs max * 20 frames = 140 frames = 2.33 s to reveal, then hold
+ * to 300 frames = 5.00 s total at 60 Hz. */
+/* Timing, overridable so a slow-motion test ROM can be built to inspect the
+ * splash: `lcc -DANIM_TOTAL=1800` holds it 30 s instead of 5 s. */
+#ifndef ANIM_REVEAL
+#define ANIM_REVEAL 20      /* frames per letter as it appears (~0.33 s) */
+#endif
+#ifndef ANIM_TOTAL
+#define ANIM_TOTAL  300     /* whole splash, 300 frames @60 Hz = 5.00 s */
+#endif
+static void game_over_anim(const char *l1, const char *l2) {
+    uint16_t elapsed = 0;       /* ANIM_TOTAL is 300: uint8_t would never reach it */
+    uint8_t n, row;
+    uint16_t c;                 /* vram is 360 entries: uint8_t would never reach it */
+    const char *t;
+
+    cursor_off();               /* else the firing cursor's hollow box sits on the splash */
+    for (c = 0; c < 360; c++) vram[c] = TILE_BLANK;
+    /* TOP AND BOTTOM bars only. No side borders: "LOST" is 19 tiles wide (col
+       0..18), so a left border at col 0 would merge with the L's stem and a
+       right one would touch the T. The bars alone still read as a title card. */
+    for (c = 0; c < 20; c++) { paint(0, c, TILE_SOLID); paint(17, c, TILE_SOLID); }
+    flush();
+
+    /* two lines, vertically centred: 5 rows + 1 gap + 5 rows = 11 rows */
+    for (row = 0; row < 2; row++) {
+        const char *line = row ? l2 : l1;
+        uint8_t startr = (uint8_t)(row ? 9 : 3);
+        n = 0; t = line; while (*t++) n++;
+        {
+            uint8_t col = (uint8_t)((20 - big_line_w(n)) / 2);
+            for (t = line; *t; t++) {
+                big_glyph(startr, col, *t);
+                col = (uint8_t)(col + BIG_W + BIG_GAP);
+                flush();
+                for (c = 0; c < ANIM_REVEAL; c++) { wait_vbl_done(); elapsed++; }
+            }
+        }
+    }
+    while (elapsed < ANIM_TOTAL) { wait_vbl_done(); elapsed++; }
+}
+
 /* ---- game over: reveal BOTH fleets ------------------------------------------
  * Previously each end state froze with `for (;;) wait_vbl_done()`, so the enemy
  * fleet was never shown -- the player could win without ever learning where the
@@ -692,8 +780,8 @@ void main(void) {
         draw_fleet();
         flush();
         if (ob.alive == 0) {
-            /* Player wins: reveal both fleets instead of freezing, so the player
-               can finally see where the enemy ships were. */
+            /* Big splash for 5 s, then the fleet reveal. */
+            game_over_anim("YOU", "WIN");
             game_over("YOU WIN!");
         }
         pause_frames(45);
@@ -732,7 +820,7 @@ void main(void) {
         draw_fleet();
         flush();
         if (pb.alive == 0) {
-            /* Player loses: same reveal, so they can see the fleet that got them. */
+            game_over_anim("YOU", "LOST");
             game_over("YOU LOSE");
         }
         pause_frames(45);
