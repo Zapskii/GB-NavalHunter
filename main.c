@@ -186,6 +186,45 @@ static void draw_hint(void) {
     put_text(HINT, 0, "A=FIRE SEL=VIEW");
 }
 
+/* Wait n vertical blanks (~n/60 s). Declared here, above its first use in
+   place_fleet/choose_mode -- C needs it before it is called. */
+static void pause_frames(uint16_t n) { while (n--) wait_vbl_done(); }
+
+/* Forward decls: choose_mode/place_fleet are defined above init_board, but call
+   it. C requires a declaration before use. */
+static void init_board(Board *b);
+
+/* Boot menu. A = random fleet (as before), B = place your own.
+   Returns 1 for manual placement, 0 for random. Blocks until a choice is made
+   and the button released, so a held button cannot skip straight into the game. */
+static uint8_t choose_mode(void) {
+    status1("BATTLESHIP");
+    msg("PLACE YOUR FLEET?");
+    clear_row(INFO);
+    put_text(INFO, 0, "A=RANDOM");
+    put_text(INFO, 10, "B=MANUAL");
+    clear_row(HINT);
+    put_text(HINT, 0, "PICK A OR B");
+    flush();
+
+    for (;;) {
+        uint8_t j = joypad();
+        if (j & J_A) { while (joypad() & J_A) wait_vbl_done(); return 0; }
+        if (j & J_B) { while (joypad() & J_B) wait_vbl_done(); return 1; }
+        wait_vbl_done();
+    }
+}
+
+/* Manual fleet placement -- implemented in the next task. For now this just
+   fills the player board randomly and says so, so the menu wiring is testable
+   on its own. */
+static void place_fleet(void) {
+    init_board(&pb);
+    status1("RANDOM (STUB)");
+    flush();
+    pause_frames(60);
+}
+
 /* ---------- fleet placement (rules live in place.h) ---------- */
 /* Random fleet. clear_board/place_random_one/place_ship/can_place live in
    place.h so the placement rules are unit-testable on the host (tests/). */
@@ -277,8 +316,6 @@ static void redraw(void) {
     flush();
 }
 
-static void pause_frames(uint16_t n) { while (n--) wait_vbl_done(); }
-
 /* ---------- direction input with key-repeat ----------
  * Without this, holding a direction moves one square per frame (~60/sec), so a
  * normal tap overshoots by several squares and you cannot land on a neighbour.
@@ -301,8 +338,19 @@ void main(void) {
 
     { uint16_t i; for (i = 0; i < 360; i++) vram[i] = TILE_BLANK; }
 
-    init_board(&pb);
-    init_board(&ob);
+    /* Turn the display on BEFORE the boot menu: DISPLAY_ON must not be waiting
+       at the end of main(), or the menu renders invisible and the player stares
+       at a blank screen while the ROM blocks in choose_mode(). */
+    SHOW_BKG;
+    DISPLAY_ON;
+
+    /* ---- boot menu: random fleet or place your own? ---- */
+    {
+        uint8_t manual = choose_mode();
+        init_board(&ob);                       /* enemy fleet is always random */
+        if (manual) place_fleet();             /* fills pb interactively */
+        else        init_board(&pb);           /* or randomly, as before */
+    }
     { uint8_t i; for (i = 0; i < 100; i++) target[i] = 0; }
 
 #ifdef TEST_WIN
