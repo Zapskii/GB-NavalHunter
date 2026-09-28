@@ -266,6 +266,60 @@ static void splash_show(const uint8_t *tiles, uint8_t ntiles, const uint8_t *map
     flush();
 }
 
+/* ---- title screen ----------------------------------------------------------
+ * Shown ONCE, on boot only -- replays go straight to the mode menu.
+ *
+ * The art is two frames of the same 160x144 image that differ ONLY in the
+ * PRESS START band (tile rows 14-15), so they share ONE 190-tile tileset and
+ * the flash is just a map swap: no VRAM reload, so the band switches instantly
+ * and cannot tear mid-blit.
+ *
+ * Loaded at VRAM tile base 0, NOT the game-over splash base (98): 98 + 190 =
+ * 288 would run past the 256-tile VRAM and corrupt the sprite tiles. Base 0
+ * costs 190 of 256, and the game tiles are restored on exit.
+ *
+ * Only START leaves this screen. A/B/SELECT/d-pad are deliberately ignored, so
+ * the game cannot be started by mashing -- the player must read the prompt.
+ */
+#define TITLE_BLINK_FRAMES 60          /* 1 s on, 1 s off @ 60 Hz */
+
+static void title_screen(void) {
+    uint16_t i, f;
+
+    cursor_off();
+    HIDE_SPRITES;                      /* the firing cursor must not show here */
+
+    set_bkg_data(0, TITLE_TILES, title_tiles);
+    for (i = 0; i < 360; i++) vram[i] = title_map_on[i];
+    flush();
+
+    for (;;) {
+        /* ---- on for one second ---- */
+        for (f = 0; f < TITLE_BLINK_FRAMES; f++) {
+            if (joypad() & J_START) goto pressed;
+            wait_vbl_done();
+        }
+        /* ---- off for one second ---- */
+        for (i = 0; i < 360; i++) vram[i] = title_map_off[i];
+        flush();
+        for (f = 0; f < TITLE_BLINK_FRAMES; f++) {
+            if (joypad() & J_START) goto pressed;
+            wait_vbl_done();
+        }
+        /* ---- back on (same tiles, so just re-blit the 'on' map) ---- */
+        for (i = 0; i < 360; i++) vram[i] = title_map_on[i];
+        flush();
+    }
+
+pressed:
+    while (joypad() & J_START) wait_vbl_done();    /* wait for release */
+
+    /* hand the tile area back to the game */
+    set_bkg_data(0, GFX_TILE_COUNT, gfx_tiles);
+    for (i = 0; i < 360; i++) vram[i] = TILE_BLANK;
+    flush();
+}
+
 /* ---- game over: reveal BOTH fleets ------------------------------------------
  * Previously each end state froze with `for (;;) wait_vbl_done()`, so the enemy
  * fleet was never shown -- the player could win without ever learning where the
@@ -621,6 +675,15 @@ void main(void) {
        at a blank screen while the ROM blocks in choose_mode(). */
     SHOW_BKG;
     DISPLAY_ON;
+
+#ifndef NO_TITLE
+    /* Boot-only title screen, deliberately OUTSIDE the outer game loop: the
+       loop runs once per game, so anything inside it would flash the title on
+       every replay as well. Replays go straight to the mode menu.
+       Test ROMs pass -DNO_TITLE so a scripted test is not blocked on a
+       keypress before the game begins. */
+    title_screen();
+#endif
 
     /* ---- outer loop: one iteration == one whole game ----
        Everything from here is re-run each time the player presses START on the
