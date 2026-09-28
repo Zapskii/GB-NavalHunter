@@ -17,6 +17,8 @@ static int fails = 0;
 
 int main(void) {
     Board b;
+    uint8_t i, t;
+    srand(7);
 
     /* ---- place_ship geometry ---- */
     clear_board(&b);
@@ -96,6 +98,53 @@ int main(void) {
     CHECK(ship_is_placed(&b, 1) == 0, "ship 1 still not placed");
     place_ship(&b, 0, 2, 4, 1, 1);
     CHECK(ship_is_placed(&b, 1) == 1, "ship 1 reported placed after commit");
+
+    /* ---- AI: a lone hit queues the four orthogonal neighbours ---- */
+    clear_board(&b);
+    place_ship(&b, 4, 4, 3, 1, 2);            /* cruiser horizontal, row 4, cols 4-6 */
+    b.st[4 * 10 + 5] = S_HIT; b.hits[2] = 1;
+    ai_clear_queue();
+    ai_hit(&b, 2, 5, 4);
+    CHECK(target[4 * 10 + 4] == 1, "hit queues left neighbour");
+    CHECK(target[4 * 10 + 6] == 1, "hit queues right neighbour");
+    CHECK(target[3 * 10 + 5] == 1, "hit queues above");
+    CHECK(target[5 * 10 + 5] == 1, "hit queues below");
+    CHECK(target[3 * 10 + 4] == 0, "diagonal not queued");
+
+    /* ---- AI: two adjacent hits reveal the line, cross neighbours dropped ---- */
+    clear_board(&b);
+    place_ship(&b, 2, 0, 5, 0, 0);            /* carrier vertical, col 2, rows 0-4 */
+    b.st[2] = S_HIT; b.st[2 * 10 + 1] = S_HIT; b.hits[0] = 2;
+    ai_clear_queue();
+    ai_hit(&b, 0, 2, 1);
+    CHECK(target[2 * 10 + 2] == 1, "line extended down to the next hull cell");
+    CHECK(target[1 * 10 + 1] == 0, "left diagonal not queued");
+    CHECK(target[1 * 10 + 2] == 0, "left cross not queued");
+    CHECK(target[3 * 10 + 2] == 0, "right cross not queued");
+
+    /* ---- AI: the line walk steps over several hits to the far end ---- */
+    clear_board(&b);
+    place_ship(&b, 2, 0, 5, 0, 0);
+    b.st[2] = S_HIT; b.st[2 * 10 + 1] = S_HIT; b.st[2 * 10 + 2] = S_HIT;
+    b.hits[0] = 3;
+    ai_clear_queue();
+    ai_hit(&b, 0, 2, 1);
+    CHECK(target[3 * 10 + 2] == 1, "walk passed 3 hits, queued the far end");
+    CHECK(target[2 * 10 + 0] == 0, "already-hit cell not re-queued");
+
+    /* ---- AI: hunt skips dead cells next to a sunk ship ---- */
+    clear_board(&b);
+    place_ship(&b, 0, 0, 4, 0, 1);            /* vertical col 0, rows 0-3 */
+    for (i = 0; i < 4; i++) b.st[i * 10] = S_SUNK;
+    b.hits[1] = 4; b.alive = 6;
+    for (t = 0; t < 200; t++) {
+        uint8_t idx = ai_hunt(&b);
+        CHECK(b.st[idx] == S_EMPTY, "hunt fired at an unfired cell");
+        /* the sunk ship sits on col 0 rows 0-3, so its 3x3 moat covers
+           col 0..1 x rows 0..4 -- everything else is a legal shot */
+        CHECK(!(idx % 10 <= 1 && idx / 10 <= 4), "hunt avoided a cell touching a sunk ship");
+        if (fails) break;
+    }
 
     printf("test_place: %s (%d failures)\n", fails ? "FAIL" : "PASS", fails);
     return fails ? 1 : 0;

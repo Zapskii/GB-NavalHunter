@@ -65,11 +65,7 @@
                                        tile's left edge; at column 0 the bow would
                                        clip against the screen edge) */
 
-/* cell states */
-#define S_EMPTY 0
-#define S_MISS  1
-#define S_HIT   2
-#define S_SUNK  3
+/* cell states live in place.h (S_EMPTY/S_MISS/S_HIT/S_SUNK), shared with the AI */
 
 #define NSHIP      7
 static const char *const ship_name[NSHIP] = {
@@ -636,29 +632,7 @@ static uint8_t fire(Board *b, uint8_t x, uint8_t y, uint8_t *sunk) {
     return 1;
 }
 
-/* ---------- computer AI: queue neighbours on hit, else parity hunt ---------- */
-static uint8_t target[100];
-
-static void ai_queue(uint8_t x, uint8_t y) {
-    if (x > 9 || y > 9) return;
-    if (pb.st[y * 10 + x] != S_EMPTY) return;
-    target[y * 10 + x] = 1;
-}
-
-static void ai_pick(uint8_t *ox, uint8_t *oy) {
-    uint8_t i;
-    for (i = 0; i < 100; i++)                 /* 1. follow up a hit */
-        if (target[i]) { target[i] = 0; *ox = i % 10; *oy = i / 10; return; }
-
-    for (i = 0; i < 100; i++) {               /* 2. parity hunt */
-        uint8_t x = i % 10, y = i / 10;
-        if (((x + y) & 1) == 0 && pb.st[i] == S_EMPTY) { *ox = x; *oy = y; return; }
-    }
-    for (i = 0; i < 100; i++)                 /* 3. anything left */
-        if (pb.st[i] == S_EMPTY) { *ox = i % 10; *oy = i / 10; return; }
-
-    *ox = 0; *oy = 0;
-}
+/* ---------- computer AI: the rules live in place.h, tested on the host ------- */
 
 /* ---------- misc ---------- */
 /* Single centred board, so the cursor only needs cell coords now. */
@@ -759,7 +733,7 @@ void main(void) {
         if (manual) place_fleet();             /* fills pb interactively */
         else        init_board(&pb);           /* or randomly, as before */
     }
-    { uint8_t i; for (i = 0; i < 100; i++) target[i] = 0; }
+    ai_clear_queue();
 
 #ifdef TEST_WIN
     /* TEST-ONLY (never in the shipped ROM): pre-sink the whole enemy fleet
@@ -801,7 +775,7 @@ void main(void) {
     DISPLAY_ON;
 
     for (;;) {
-        uint8_t j, r, sunk = 0, px = cx, py = cy;
+        uint8_t j, r, sunk = 0, px = cx, py = cy, ei;
         uint8_t ex, ey;                 /* the enemy's shot lands here */
 
         wait_vbl_done();
@@ -881,11 +855,12 @@ void main(void) {
         redraw();
         pause_frames(30);
 
-        ai_pick(&ex, &ey);
+        ei = ai_hunt(&pb);
+        ex = ei % 10; ey = ei / 10;
         move_cursor(ex, ey);
         r = fire(&pb, ex, ey, &sunk);
         if (r == 3) {
-            /* ai_pick should never choose a spent square, but if it somehow
+            /* ai_hunt should never choose a spent square, but if it somehow
                does, fall through to the hunt so it cannot stall the game. */
             uint8_t i;
             for (i = 0; i < 100; i++) {
@@ -894,13 +869,8 @@ void main(void) {
             move_cursor(ex, ey);
             r = fire(&pb, ex, ey, &sunk);
         }
-        if (r >= 1) {               /* queue the four orthogonal neighbours */
-            ai_queue(ex + 1, ey); ai_queue(ex - 1, ey);
-            ai_queue(ex, ey + 1); ai_queue(ex, ey - 1);
-        }
-        if (r == 2) {               /* ship gone: its queued cells are stale */
-            uint8_t i; for (i = 0; i < 100; i++) target[i] = 0;
-        }
+        if (r == 1) ai_hit(&pb, pb.own[ey * 10 + ex], ex, ey);  /* follow the hit up */
+        if (r == 2) ai_clear_queue();   /* ship gone: its queued cells are stale */
         if (r == 0)      { msg("ENEMY MISS"); }
         else if (r == 1) { msg("ENEMY HIT!"); sound_explosion(0); }
         else             { msg(""); put_text(MSG, 0, ship_name[sunk]); put_text(MSG, 11, "SUNK"); sound_explosion(1); }

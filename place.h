@@ -16,6 +16,12 @@
 #define CELL_EMPTY 255          /* also doubles as "no ship" / NOSHIP */
 #define NSHIP      7
 
+/* cell firing states (st[]) */
+#define S_EMPTY 0
+#define S_MISS  1
+#define S_HIT   2
+#define S_SUNK  3
+
 /* Ship lengths in placement order: carrier, battleship, cruiser, 2 destroyers,
    2 subs. Declared here (not in main.c) so the rules can use it. */
 static const uint8_t ship_len[NSHIP] = {5, 4, 3, 2, 2, 1, 1};
@@ -91,6 +97,97 @@ static uint8_t place_random_one(Board *b, uint8_t s) {
         }
         if (++tries > 200) return 0;
     }
+}
+
+/* ---------- computer opponent (pure logic, host-testable like the rules) ------
+ * HUNT: fire at a random cell. A cell next to a KNOWN ship (hit or sunk) can
+   hold no ship -- ships never touch -- so those dead shots are skipped while
+   any other cell remains. The random start kills the old every-other-slot
+   parity rhythm; the moat rule replaces the accuracy it bought.
+ * TARGET: after a hit, try the four neighbours; once a second hit of the same
+   ship is adjacent, the orientation is known and we extend the ship's line in
+   both directions, the way a human finishes off a damaged ship.
+ * target[] queues the cells to fire before hunting resumes; sinking the ship
+   clears it, because every neighbour of a sunk ship is provably water.
+ * ai_hunt() is only reached with an EMPTY queue, which means no ship is
+   partially hit -- so the moat check (st >= S_HIT, sunk only) is exact: it
+   can never mark a live ship's continuation as dead.
+ */
+static uint8_t target[100];
+
+static void ai_clear_queue(void) {
+    uint8_t i;
+    for (i = 0; i < 100; i++) target[i] = 0;
+}
+
+static void ai_queue(const Board *b, uint8_t x, uint8_t y) {
+    if (x > 9 || y > 9) return;
+    if (b->st[y * 10 + x] != S_EMPTY) return;
+    target[y * 10 + x] = 1;
+}
+
+/* Queue the continuation of ship `o` along one axis from a hit at (x,y).
+   The walk steps over already-hit hull cells and stops at water, the edge,
+   or the first unfired hull cell (which it queues). */
+static void ai_extend(const Board *b, uint8_t o, uint8_t x, uint8_t y, uint8_t horiz) {
+    int8_t sgn;
+    for (sgn = -1; sgn <= 1; sgn += 2) {
+        int8_t px = (int8_t)x, py = (int8_t)y;
+        for (;;) {
+            int8_t nx = horiz ? (int8_t)(px + sgn) : px;
+            int8_t ny = horiz ? py : (int8_t)(py + sgn);
+            if (nx < 0 || nx > 9 || ny < 0 || ny > 9) break;
+            if (b->own[ny * 10 + nx] != o) break;    /* water: the hull ended */
+            if (b->st[ny * 10 + nx] == S_EMPTY) {
+                ai_queue(b, (uint8_t)nx, (uint8_t)ny);
+                break;
+            }
+            px = nx; py = ny;                        /* another hit: walk past it */
+        }
+    }
+}
+
+/* Follow-up after a hit on ship `o` at (x,y). Ships never touch, so any
+   adjacent hit is part of the same ship and reveals the orientation. */
+static void ai_hit(const Board *b, uint8_t o, uint8_t x, uint8_t y) {
+    uint8_t horiz = 0xFF;                            /* unknown */
+    if ((x > 0 && b->st[y * 10 + x - 1] == S_HIT) ||
+        (x < 9 && b->st[y * 10 + x + 1] == S_HIT)) horiz = 1;
+    else if ((y > 0 && b->st[(y - 1) * 10 + x] == S_HIT) ||
+             (y < 9 && b->st[(y + 1) * 10 + x] == S_HIT)) horiz = 0;
+    if (horiz != 0xFF) ai_extend(b, o, x, y, horiz);
+    else {
+        ai_queue(b, (uint8_t)(x + 1), y); ai_queue(b, (uint8_t)(x - 1), y);
+        ai_queue(b, x, (uint8_t)(y + 1)); ai_queue(b, x, (uint8_t)(y - 1));
+    }
+}
+
+/* 1 if any of the 8 neighbours of (x,y) is a known ship cell. */
+static uint8_t ai_moated(const Board *b, uint8_t x, uint8_t y) {
+    int8_t dx, dy;
+    for (dy = -1; dy <= 1; dy++)
+        for (dx = -1; dx <= 1; dx++) {
+            int8_t nx = (int8_t)(x + dx), ny = (int8_t)(y + dy);
+            if (nx < 0 || nx > 9 || ny < 0 || ny > 9) continue;
+            if (b->st[ny * 10 + nx] >= S_HIT) return 1;
+        }
+    return 0;
+}
+
+/* HUNT: random unfired cell, moat-aware. Two passes so the loop always
+   terminates: preferred (not moated), then any unfired cell. */
+static uint8_t ai_hunt(const Board *b) {
+    uint8_t start = (uint8_t)(rand() % 100);
+    uint8_t pass, i;
+    for (pass = 0; pass < 2; pass++)
+        for (i = 0; i < 100; i++) {
+            uint8_t idx = (uint8_t)((start + i) % 100);
+            uint8_t x = (uint8_t)(idx % 10), y = (uint8_t)(idx / 10);
+            if (b->st[idx] != S_EMPTY) continue;
+            if (pass == 0 && ai_moated(b, x, y)) continue;
+            return idx;
+        }
+    return 0;   /* only reachable once every cell has been fired */
 }
 
 #endif /* PLACE_H */
