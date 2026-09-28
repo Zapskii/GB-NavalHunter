@@ -302,7 +302,11 @@ static void game_over(const char *title) {
             put_text(INFO, (uint8_t)((20 - len) / 2), s);
         }
         clear_row(HINT);
-        put_text(HINT, 0, "SELECT SWAP");
+        /* Two actions, one row each, so neither is cramped: SELECT browses the
+           other fleet, START starts a new game (returns to the mode menu). */
+        clear_row(MSG);
+        put_text(MSG, 0, "SELECT=SWAP FLEET");
+        put_text(HINT, 0, "START=NEW GAME");
 
         /* repaint the board with ALL ships revealed, regardless of hits */
         for (y = 0; y < 10; y++)
@@ -319,11 +323,14 @@ static void game_over(const char *title) {
         draw_fleet();
         flush();
 
-        /* wait for a keypress: SELECT/B swaps, A/START (or the other) also swaps
-           so a player mashing any button gets the reveal rather than nothing */
+        /* ---- input ----
+           START = play again (the requested behaviour): return to the caller,
+           which breaks out of the game loop and re-runs setup.
+           SELECT/B/A browse the other fleet. */
         for (;;) {
             uint8_t j = joypad();
-            if (j & (J_SELECT | J_A | J_START | J_B)) {
+            if (j & J_START) return;
+            if (j & (J_SELECT | J_A | J_B)) {
                 while (joypad() & j) wait_vbl_done();
                 showing_own ^= 1;
                 break;
@@ -601,7 +608,7 @@ static void move_cursor(uint8_t x, uint8_t y) {
    count told them nothing actionable. */
 
 void main(void) {
-    uint8_t cx = 0, cy = 0;
+    uint8_t cx, cy;
 
     initrand((uint16_t)sys_time ^ 0xA55Au);
 
@@ -609,13 +616,27 @@ void main(void) {
     set_sprite_data(0, 1, sprite_tiles);
     SPRITES_8x8;
 
-    { uint16_t i; for (i = 0; i < 360; i++) vram[i] = TILE_BLANK; }
-
     /* Turn the display on BEFORE the boot menu: DISPLAY_ON must not be waiting
        at the end of main(), or the menu renders invisible and the player stares
        at a blank screen while the ROM blocks in choose_mode(). */
     SHOW_BKG;
     DISPLAY_ON;
+
+    /* ---- outer loop: one iteration == one whole game ----
+       Everything from here is re-run each time the player presses START on the
+       game-over screen, which is how "play again" works: game_over() returns,
+       we fall out of the inner game loop, and come back round to the boot menu
+       with freshly generated boards. Nothing persists between games. */
+    for (;;) {
+    cx = 0; cy = 0;
+    /* per-game state, reset so a replay cannot inherit the last game's view
+       label, placement mode or key-repeat state */
+    view = 0;
+    status_code = ST_PLAYING;
+    held_btn = 0; held_timer = 0;
+    cursor_off();
+
+    { uint16_t i; for (i = 0; i < 360; i++) vram[i] = TILE_BLANK; }
 
     /* ---- boot menu: random fleet or place your own? ---- */
     {
@@ -731,9 +752,11 @@ void main(void) {
         draw_fleet();
         flush();
         if (ob.alive == 0) {
-            /* Big splash for 5 s, then the fleet reveal. */
+            /* Big splash for 5 s, then the fleet reveal. game_over() returns
+               only when the player presses START, which means "play again". */
             splash_show(splash_win_tiles, SPLASH_WIN_TILES, splash_win_map);
             game_over("YOU WIN!");
+            break;
         }
         pause_frames(45);
 
@@ -773,6 +796,7 @@ void main(void) {
         if (pb.alive == 0) {
             splash_show(splash_lose_tiles, SPLASH_LOSE_TILES, splash_lose_map);
             game_over("YOU LOSE");
+            break;
         }
         pause_frames(45);
 
@@ -784,4 +808,5 @@ void main(void) {
         redraw();
         flush();
     }
+    }   /* end outer replay loop */
 }
