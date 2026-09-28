@@ -685,10 +685,49 @@ static void move_cursor(uint8_t x, uint8_t y) {
    both were unlabelled numbers that the player had to decode, and the turn
    count told them nothing actionable. */
 
+/* ---------- sound: a hit is an explosion, a sinking is a bigger one ----------
+ * Channel 4 is the noise generator, which is the standard Game Boy explosion
+ * voice -- a low, rumbling burst with no tone. There is no sound library in
+ * this GBDK build, so the four channel-4 registers are driven directly; that is
+ * the same approach GBDK's own examples/gb/sound/sound.c takes.
+ *
+ * The sound must NOT block. The hardware envelope decays the burst by itself,
+ * so a shot resolves and the turn loop carries straight on. Waiting here for
+ * the explosion to finish would stall the game for its whole duration.
+ *
+ * One mechanism ends the sound, not two: NR41 (length) is deliberately left at
+ * its reset value and only the envelope (NR42) retires the note. The length
+ * counter cannot be relied on for this without also setting NR44 bit 6, and a
+ * decay that is switched on by the same write that starts the note is simpler
+ * to reason about than two independent stop conditions.
+ *
+ * Envelope (NR42): volume 15, direction = decay.
+ * Poly (NR43): 15-bit noise, higher `shift` clocks the LFSR slower = lower pitch.
+ */
+#define NOISE_TO_BOTH_SPEAKERS (AUDTERM_4_LEFT | AUDTERM_4_RIGHT)
+
+static void sound_init(void) {
+    rAUDENA = AUDENA_ON;                     /* power the APU up FIRST         */
+    rAUDVOL = (uint8_t)(AUDVOL_VOL_LEFT(7) | AUDVOL_VOL_RIGHT(7));
+    rAUDTERM = NOISE_TO_BOTH_SPEAKERS;       /* channel 4 out of both speakers */
+}
+
+/* big != 0 = a ship going down: slower decay, deeper, so it is clearly distinct
+   from the ordinary hit sound rather than just louder. */
+static void sound_explosion(uint8_t big) {
+    rAUD4ENV  = (uint8_t)(big ? 0xF7 : 0xF3); /* vol 15, decay; big = slower    */
+    rAUD4POLY = (uint8_t)(big ? 0x76 : 0x65); /* big = lower/slower noise clock */
+    rAUD4GO   = 0x80;                         /* retrigger the channel          */
+}
+
 void main(void) {
     uint8_t cx, cy;
 
     initrand((uint16_t)sys_time ^ 0xA55Au);
+
+    /* Power up audio once, at boot. Register writes to a powered-down APU are
+       ignored on hardware, so this has to happen before any sound request. */
+    sound_init();
 
     set_bkg_data(0, GFX_TILE_COUNT, gfx_tiles);
     set_sprite_data(0, 1, sprite_tiles);
@@ -833,8 +872,8 @@ void main(void) {
             continue;
         }
         if (r == 0)      { msg("MISS"); }
-        else if (r == 1) { msg("HIT!"); }
-        else             { msg(""); put_text(MSG, 0, ship_name[sunk]); put_text(MSG, 11, "SUNK"); }
+        else if (r == 1) { msg("HIT!"); sound_explosion(0); }
+        else             { msg(""); put_text(MSG, 0, ship_name[sunk]); put_text(MSG, 11, "SUNK"); sound_explosion(1); }
         draw_board();
         draw_fleet();
         flush();
@@ -875,8 +914,8 @@ void main(void) {
             uint8_t i; for (i = 0; i < 100; i++) target[i] = 0;
         }
         if (r == 0)      { msg("ENEMY MISS"); }
-        else if (r == 1) { msg("ENEMY HIT!"); }
-        else             { msg(""); put_text(MSG, 0, ship_name[sunk]); put_text(MSG, 11, "SUNK"); }
+        else if (r == 1) { msg("ENEMY HIT!"); sound_explosion(0); }
+        else             { msg(""); put_text(MSG, 0, ship_name[sunk]); put_text(MSG, 11, "SUNK"); sound_explosion(1); }
         draw_board();
         draw_fleet();
         flush();
