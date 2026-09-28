@@ -855,12 +855,12 @@ void main(void) {
         redraw();
         pause_frames(30);
 
-        ei = ai_hunt(&pb);
+        ei = ai_next(&pb);
         ex = ei % 10; ey = ei / 10;
         move_cursor(ex, ey);
         r = fire(&pb, ex, ey, &sunk);
         if (r == 3) {
-            /* ai_hunt should never choose a spent square, but if it somehow
+            /* ai_next should never choose a spent square, but if it somehow
                does, fall through to the hunt so it cannot stall the game. */
             uint8_t i;
             for (i = 0; i < 100; i++) {

@@ -190,4 +190,13 @@ static uint8_t ai_hunt(const Board *b) {
     return 0;   /* only reachable once every cell has been fired */
 }
 
+/* Next shot: a queued follow-up if any, else a hunt. The queued cell is
+   consumed so it is not fired twice. */
+static uint8_t ai_next(const Board *b) {
+    uint8_t i;
+    for (i = 0; i < 100; i++)
+        if (target[i]) { target[i] = 0; return i; }
+    return ai_hunt(b);
+}
+
 #endif /* PLACE_H */
