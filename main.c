@@ -72,8 +72,6 @@
 #define S_SUNK  3
 
 #define NSHIP      7
-/* the same lengths as strings, for the fleet panel's length readout */
-static const char *const ship_len_s[NSHIP] = { "5", "4", "3", "2", "2", "1", "1" };
 static const char *const ship_name[NSHIP] = {
     "CARRIER", "BATTLESHIP", "CRUISER", "DESTROYER", "DESTROYER", "SUB", "SUB"
 };
@@ -207,9 +205,10 @@ static void draw_fleet(void) {
            contiguous block: SHIP_ICON_BASE + 4*s [+2 when sunk], then +1 for
            the right-hand tile. */
         uint8_t base = (uint8_t)(SHIP_ICON_BASE + 4 * s + (sunk ? SHIP_ICON_SUNK : 0));
+        uint8_t lenbuf[2] = { (char)('0' + ship_len[s]), 0 };
         paint(r, c, base);
         paint(r, (uint8_t)(c + 1), (uint8_t)(base + 1));
-        put_text(r, (uint8_t)(c + 2), ship_len_s[s]);
+        put_text(r, (uint8_t)(c + 2), lenbuf);
     }
 }
 
@@ -217,12 +216,7 @@ static void draw_view_label(void) {
     /* The coord readout and turn counter are gone, so this label owns the whole
        INFO row and can be centred with the full wording ("ENEMY WATERS" was
        shortened to "ENEMY SEA" only to avoid running into the turn counter). */
-    uint8_t k;
-    const char *s = view ? "YOUR WATERS" : "ENEMY WATERS";
-    uint8_t len = 0;
-    while (s[len]) len++;
-    for (k = 0; k < 20; k++) paint(INFO, k, TILE_BLANK);
-    put_text(INFO, (uint8_t)((20 - len) / 2), s);
+    text_centred(INFO, view ? "YOUR WATERS" : "ENEMY WATERS");
 }
 
 static void draw_hint(void) {
@@ -356,13 +350,7 @@ static void game_over(const char *title) {
         status1(title);
         msg("");
         /* label the board underneath: whose fleet are we looking at? */
-        {
-            const char *s = showing_own ? "YOUR FLEET" : "ENEMY FLEET";
-            uint8_t len = 0, k;
-            while (s[len]) len++;
-            for (k = 0; k < 20; k++) paint(INFO, k, TILE_BLANK);
-            put_text(INFO, (uint8_t)((20 - len) / 2), s);
-        }
+        text_centred(INFO, showing_own ? "YOUR FLEET" : "ENEMY FLEET");
         clear_row(HINT);
         /* Two actions, one row each, so neither is cramped: SELECT browses the
            other fleet, START starts a new game (returns to the mode menu). */

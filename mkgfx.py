@@ -61,10 +61,9 @@ def build_font():
     g["Z"] = ["#####","....#","...#.","..#..",".#...","#....","#####"]
     return g
 
-def add_grid_lines(rows, gutter=0):
+def add_grid_lines(rows):
     """Add 1px colour-1 hairlines on the right and bottom edge of a cell,
-    so adjacent cells tile into a visible grid. Never overwrites existing art.
-    gutter>0 leaves the leftmost `gutter` pixels blank -> a board divider."""
+    so adjacent cells tile into a visible grid. Never overwrites existing art."""
     rows = pad(rows)
     out = []
     for y in range(8):
@@ -75,8 +74,6 @@ def add_grid_lines(rows, gutter=0):
             for i in range(8):
                 if r[i] == '.':
                     r[i] = '1'          # bottom edge
-        for i in range(gutter):         # carved gutter: force blank
-            r[i] = '.'
         out.append("".join(r))
     return out
 
@@ -261,7 +258,7 @@ def build_title_frames(on_path, off_path):
     return off_img, fixed
 
 
-def load_splash_union(sources):
+def load_splash(sources):
     """Decode several same-screen images into ONE deduped tileset + a map each.
 
     `sources` is [(tag, PIL image), ...] where every image is the same size and
@@ -286,38 +283,9 @@ def load_splash_union(sources):
     return order, maps
 
 
-
-
-def load_splash(path):
-    """Decode a 160x144 4-colour PNG -> (tiles, map).
-
-    `tiles` is a list of 8-row strings using '0'..'3' (encode() understands
-    those directly); `map` is 360 local tile indices in row-major order, so
-    main.c can blit the whole screen with one set_bkg_tiles and only the
-    distinct tiles ever reach VRAM.
-    """
-    im = Image.open(path).convert("RGB")
-    px = im.load()
-    seen, order, mp = {}, [], []
-    for ty in range(im.size[1] // 8):
-        for tx in range(im.size[0] // 8):
-            key = tuple(px[tx * 8 + x, ty * 8 + y] for y in range(8) for x in range(8))
-            if key not in seen:
-                seen[key] = len(order)
-                order.append(["".join("0123"[DMG_RGB[key[y * 8 + x]]] for x in range(8))
-                              for y in range(8)])
-            mp.append(seen[key])
-    return order, mp
-
-
 SHAPES = {
   # empty board cell, grid lines added below
   'CELL': ["........"] * 8,
-  # same cell, but with a 3px GUTTER hard against its left edge. Used only for
-  # column 0 of each board so the two boards are visibly separated.
-  # (160px is exactly 20 tiles wide, so there is NO spare tile column for a gap
-  #  -- the gutter has to be carved out of the cell art itself.)
-  'CELLG': ["........"] * 8,
   # light filled box with a dark outline -> "your ship"
   'SHIP': ["########",
            "#222222#",
@@ -345,39 +313,10 @@ SHAPES = {
            "........",
            "........",
            "........"],
-  # legend swatches: same art WITHOUT grid hairlines
-  'LEG_SHIP': ["########",
-               "#222222#",
-               "#222222#",
-               "#222222#",
-               "#222222#",
-               "#222222#",
-               "#222222#",
-               "########"],
-  'LEG_HIT':  ["##....##",
-               ".##..##.",
-               "..####..",
-               "...##...",
-               "..####..",
-               ".##..##.",
-               "##....##",
-               "........"],
-  'LEG_MISS': ["........",
-               "........",
-               "...##...",
-               "...##...",
-               "........",
-               "........",
-               "........",
-               "........"],
   # solid block, no grid lines -> "you cannot place here" during manual placement.
   # Deliberately a flat dark fill so it reads as a void/blocked area, clearly
   # different from the grey ship preview drawn for a legal position.
   'BAD': ["33333333"] * 8,
-  # solid block, used as one "pixel" of the big game-over lettering. Separate
-  # from BAD on purpose: same art, but the name says what it is for, so the
-  # big-font code does not read as if it were drawing "bad" cells.
-  'SOLID': ["33333333"] * 8,
   # hollow box, transparent interior -> cursor (drawn as a sprite)
   'CURSOR': ["########",
              "#......#",
@@ -422,7 +361,7 @@ def main():
         font_map[ord(ch)] = len(tiles)
         tiles.append(encode(g[ch]))
     shape = {}
-    for name in ['CELL', 'MISS', 'HIT', 'SHIP', 'LEG_SHIP', 'LEG_HIT', 'LEG_MISS', 'BAD', 'SOLID']:
+    for name in ['CELL', 'MISS', 'HIT', 'SHIP', 'BAD']:
         shape[name] = len(tiles)
         rows = SHAPES[name]
         if name in ('CELL', 'MISS', 'HIT'):
@@ -455,12 +394,12 @@ def main():
     for tag, path in SPLASH_SRC:
         if not os.path.exists(path):
             raise SystemExit("missing splash art: %s" % path)
-        order_s, mp = load_splash(path)
-        splash[tag] = (order_s, mp)
+        order_s, maps = load_splash(((tag, Image.open(path).convert("RGB")),))
+        splash[tag] = (order_s, maps[tag])
 
     # --- title screen: two frames sharing one tileset -----------------------
     t_off, t_on = build_title_frames("art/title_on.png", "art/title_off.png")
-    title_order, title_maps = load_splash_union((("on", t_on), ("off", t_off)))
+    title_order, title_maps = load_splash((("on", t_on), ("off", t_off)))
 
 
     flat = [b for t in tiles for b in t]
@@ -479,10 +418,7 @@ def main():
     h += "   afloat L tile = SHIP_ICON_BASE + 4*s, sunk L tile = +2. */\n"
     h += "#define SHIP_ICON_BASE %d\n" % icon_base
     h += "#define SHIP_ICON_SUNK 2\n"
-    h += "#define TILE_LEG_SHIP %d\n#define TILE_LEG_HIT %d\n#define TILE_LEG_MISS %d\n" % (
-        shape['LEG_SHIP'], shape['LEG_HIT'], shape['LEG_MISS'])
     h += "#define TILE_BAD %d\n" % shape['BAD']
-    h += "#define TILE_SOLID %d\n" % shape['SOLID']
     h += "#define GFX_TILE_COUNT %d\n\n" % len(tiles)
     for tag, (order_s, mp) in splash.items():
         st = [b for t in order_s for b in encode(t)]
