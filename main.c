@@ -414,8 +414,12 @@ static void init_board(Board *b);
    Returns 1 for manual placement, 0 for random. Blocks until a choice is made
    and the button released, so a held button cannot skip straight into the game. */
 static uint8_t choose_mode(void) {
-    /* The game name sits one row below the status line. Row 1 is free here: the
-       outer loop blanks vram before the menu, and the board is not drawn yet. */
+    uint8_t choice;
+    /* The game name sits one row below the status line. Row 1 is the board's
+       FIRST tile row, so the title deliberately overlaps the playfield here --
+       a title drawn on a row the board later owns would otherwise never be
+       repainted. choose_mode() therefore clears the row again before returning.
+       (Row 0 above it is left blank.) */
     text_centred(STATUS1 + 1, "NAVAL HUNTER");
     msg("PLACE YOUR FLEET?");
     clear_row(INFO);
@@ -427,10 +431,20 @@ static uint8_t choose_mode(void) {
 
     for (;;) {
         uint8_t j = joypad();
-        if (j & J_A) { while (joypad() & J_A) wait_vbl_done(); return 0; }
-        if (j & J_B) { while (joypad() & J_B) wait_vbl_done(); return 1; }
+        if (j & J_A) { while (joypad() & J_A) wait_vbl_done(); choice = 0; break; }
+        if (j & J_B) { while (joypad() & J_B) wait_vbl_done(); choice = 1; break; }
         wait_vbl_done();
     }
+
+    /* Undo the title before the playfield appears. Only the board's own columns
+       (5..14) get repainted from here on, so the outermost letters of the title
+       -- which sit on columns 4 and 15, OUTSIDE the board -- would otherwise
+       survive into the game. Clearing here rather than at the call site keeps
+       the screen self-contained, so neither the manual nor the random path can
+       forget it. */
+    clear_row(STATUS1 + 1);
+    flush();
+    return choice;
 }
 
 /* ---------- direction input with key-repeat ----------
