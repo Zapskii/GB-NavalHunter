@@ -105,6 +105,14 @@ static void put_text(uint8_t r, uint8_t c, const char *s) {
     while (*s) paint(r, c++, font_map[(uint8_t)*s++]);
 }
 static void status1(const char *s) { clear_row(STATUS1); put_text(STATUS1, 0, s); }
+/* Status line, centred. status1() left-aligns at column 0, which is right for a
+   short state message but reads lopsided for the screen title. */
+static void status1_centred(const char *s) {
+    uint8_t len = 0;
+    while (s[len]) len++;
+    clear_row(STATUS1);
+    put_text(STATUS1, (uint8_t)((20 - len) / 2), s);
+}
 static void msg(const char *s)     { clear_row(MSG);     put_text(MSG, 0, s); }
 static void flush(void) { set_bkg_tiles(0, 0, 20, 18, vram); }
 
@@ -406,7 +414,7 @@ static void init_board(Board *b);
    Returns 1 for manual placement, 0 for random. Blocks until a choice is made
    and the button released, so a held button cannot skip straight into the game. */
 static uint8_t choose_mode(void) {
-    status1("BATTLESHIP");
+    status1_centred("NAVAL HUNTER");
     msg("PLACE YOUR FLEET?");
     clear_row(INFO);
     put_text(INFO, 0, "A=RANDOM");
