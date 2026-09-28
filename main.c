@@ -88,6 +88,14 @@ static uint8_t vram[360];
 #define ST_PLACING 1
 static uint8_t status_code = ST_PLAYING;
 
+/* your-shot accuracy stats, shown on the game-over reveal */
+static uint16_t shots_fired;
+static uint16_t shots_hit;
+/* index of the cell the enemy last fired at (0xFF = none yet): the cursor
+   sprite parks there while you inspect your own waters, so the newest shot
+   is always marked */
+static uint8_t last_enemy = 0xFF;
+
 /* AI difficulty, cycled with SELECT on the boot menu. The line-following
    target chase is used at every level; only the hunt changes. */
 static const char *const level_name[3] = { "EASY", "NORMAL", "HARD" };
@@ -113,6 +121,13 @@ static void text_centred(uint8_t row, const char *s) {
     put_text(row, (uint8_t)((20 - len) / 2), s);
 }
 static void msg(const char *s)     { clear_row(MSG);     put_text(MSG, 0, s); }
+/* u16 -> decimal at p, returns length (values here are small) */
+static uint8_t fmt_u16(char *p, uint16_t v) {
+    uint8_t d[5], n = 0, j;
+    do { d[n++] = (uint8_t)('0' + v % 10); v /= 10; } while (v);
+    for (j = 0; j < n; j++) p[j] = (char)d[n - 1 - j];
+    return n;
+}
 static void flush(void) { set_bkg_tiles(0, 0, 20, 18, vram); }
 
 /* Boards sit on a grid whose hairlines live in the CELL ART: every cell carries
@@ -353,11 +368,21 @@ static void game_over(const char *title) {
         /* label the board underneath: whose fleet are we looking at? */
         text_centred(INFO, showing_own ? "YOUR FLEET" : "ENEMY FLEET");
         clear_row(HINT);
-        /* Two actions, one row each, so neither is cramped: SELECT browses the
-           other fleet, START starts a new game (returns to the mode menu). */
         clear_row(MSG);
-        put_text(MSG, 0, "SELECT=SWAP FLEET");
-        put_text(HINT, 0, "START=NEW GAME");
+        /* MSG row: your accuracy for the game just ended */
+        {
+            char m[20];
+            uint8_t i = 0;
+            uint8_t pct = shots_fired ? (uint8_t)(shots_hit * 100 / shots_fired) : 0;
+            i = fmt_u16(m, shots_fired);
+            m[i++] = ' '; m[i++] = 'S'; m[i++] = 'H'; m[i++] = 'O'; m[i++] = 'T'; m[i++] = 'S'; m[i++] = ' ';
+            i += fmt_u16(m + i, pct);
+            m[i++] = '%';
+            m[i] = 0;
+            put_text(MSG, 0, m);
+        }
+        /* Two actions, one row: SELECT browses the other fleet, START restarts */
+        put_text(HINT, 0, "SEL=SWAP ST=NEW");
 
         /* repaint the board with ALL ships revealed, regardless of hits */
         for (y = 0; y < 10; y++)
@@ -752,6 +777,8 @@ void main(void) {
     view = 0;
     status_code = ST_PLAYING;
     held_btn = 0; held_timer = 0;
+    shots_fired = 0; shots_hit = 0;
+    last_enemy = 0xFF;
     cursor_off();
 
     { uint16_t i; for (i = 0; i < 360; i++) vram[i] = TILE_BLANK; }
@@ -815,7 +842,11 @@ void main(void) {
         if (j & J_SELECT) {
             while (joypad() & J_SELECT) wait_vbl_done();
             view ^= 1;
-            if (view) cursor_off(); else move_cursor(cx, cy);
+            if (view) {
+                /* mark the enemy's latest shot instead of hiding the cursor */
+                if (last_enemy != 0xFF) move_cursor(last_enemy % 10, last_enemy / 10);
+                else cursor_off();
+            } else move_cursor(cx, cy);
             redraw();
             continue;
         }
@@ -863,6 +894,8 @@ void main(void) {
             flush();
             continue;
         }
+        shots_fired++;
+        if (r >= 1) shots_hit++;
         if (r == 0)      { msg("MISS"); sound_tick(); }
         else if (r == 1) { msg("HIT!"); sound_explosion(0); }
         else             { msg(""); put_text(MSG, 0, ship_name[sunk]); put_text(MSG, 11, "SUNK"); sound_explosion(1); }
@@ -903,6 +936,7 @@ void main(void) {
         }
         if (r == 1) ai_hit(&pb, pb.own[ey * 10 + ex], ex, ey);  /* follow the hit up */
         if (r == 2) ai_clear_queue();   /* ship gone: its queued cells are stale */
+        last_enemy = (uint8_t)(ey * 10 + ex);
         if (r == 0)      { msg("ENEMY MISS"); sound_tick(); }
         else if (r == 1) { msg("ENEMY HIT!"); sound_explosion(0); }
         else             { msg(""); put_text(MSG, 0, ship_name[sunk]); put_text(MSG, 11, "SUNK"); sound_explosion(1); }
