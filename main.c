@@ -53,6 +53,8 @@
 #include <rand.h>
 
 #include "gfx.h"
+#include "border_data.h"
+#include "sgb_border.h"
 #include "place.h"
 
 #define ROW0      1                 /* first board tile row */
@@ -747,13 +749,27 @@ void main(void) {
        ignored on hardware, so this has to happen before any sound request. */
     sound_init();
 
-    /* SGB palettes (Phase 4): recolour the game on a Super Game Boy. PAL01 sets
-       palettes 0 and 1 to a sea ramp -- light foam, grid blue, ship teal, deep
-       navy -- mapped from the same four shades the art was built from. DMG and
-       GBC fall through unchanged: the game stays 4-colour green as before.
-       Packet: header 0x01 (SGB_PAL_01, one packet), then 7 little-endian BGR555
-       words (bits 0-4 red, 5-9 green, 10-14 blue): shared colour 0 for pals 0+1,
-       then pal 0 #1-#3, then pal 1 #1-#3. sgb_check() before DISPLAY_ON. */
+    /* Turn the display on BEFORE the boot menu: DISPLAY_ON must not be waiting
+       at the end of main(), or the menu renders invisible and the player stares
+       at a blank screen while the ROM blocks in choose_mode(). */
+    SHOW_BKG;
+    DISPLAY_ON;
+
+    /* SGB support (Phase 4+5): everything here is gated on sgb_check(), so a
+       plain DMG runs the identical path as before, byte for byte.
+       - PAL01 recolours the game window with a sea ramp mapped from the same
+         four shades the art was drawn in: light foam, grid blue, ship teal,
+         deep navy. Packet: header 0x01 (SGB_PAL_01, one packet), then 7
+         little-endian BGR555 words (bits 0-4 red, 5-9 green, 10-14 blue):
+         shared colour 0 for pals 0+1, then pal 0 #1-#3, then pal 1 #1-#3.
+       - set_sgb_border() ships the 256x224 porthole frame via CHR_TRN/PCT_TRN;
+         the SGB reads those payloads off the rendered screen, so it must come
+         after DISPLAY_ON, and it trashes GB VRAM, so game tiles reload after.
+       Four frames first: PAL SNES SGB needs that delay or no border appears. */
+    {
+        uint8_t f;
+        for (f = 0; f != 4; f++) vsync();
+    }
     if (sgb_check()) {
         static const uint8_t sgb_sea[16] = {
             0x01,                                  /* PAL01, 1 packet */
@@ -765,17 +781,14 @@ void main(void) {
             0x00                                   /* terminator (unused)   */
         };
         sgb_transfer((uint8_t *)sgb_sea);
+        set_sgb_border((unsigned char *)border_data_tiles, sizeof(border_data_tiles),
+                       (unsigned char *)border_data_map, sizeof(border_data_map),
+                       (unsigned char *)border_data_palettes, sizeof(border_data_palettes));
     }
 
     set_bkg_data(0, GFX_TILE_COUNT, gfx_tiles);
     set_sprite_data(0, 1, sprite_tiles);
     SPRITES_8x8;
-
-    /* Turn the display on BEFORE the boot menu: DISPLAY_ON must not be waiting
-       at the end of main(), or the menu renders invisible and the player stares
-       at a blank screen while the ROM blocks in choose_mode(). */
-    SHOW_BKG;
-    DISPLAY_ON;
 
 #ifndef NO_TITLE
     /* Boot-only title screen, deliberately OUTSIDE the outer game loop: the

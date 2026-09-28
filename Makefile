@@ -12,11 +12,11 @@ CFLAGS = -Wm-yn"NAVAL HUNTER"
 
 # -zap suffix: this repo's builds, distinct from Coder2's navalhunter.gb
 TARGET = navalhunter-zap.gb
-SRC    = main.c
+SRC    = main.c sgb_border.c border_data.c
 
 all: $(TARGET)
 
-$(TARGET): $(SRC) gfx.h
+$(TARGET): $(SRC) gfx.h sgb_border.h border_data.h
 	$(LCC) $(CFLAGS) -o $(TARGET) $(SRC)
 
 # symbols for emulator debuggers
@@ -27,6 +27,17 @@ sym: $(SRC) gfx.h
 # run `python3 mkgfx.py` on the host, then sync gfx.h in.
 gfx:
 	@echo "gfx.h is generated host-side: python3 mkgfx.py && scp gfx.h ..."
+
+# SGB border tiles/map/palettes, from art/border_sgb.png (256x224, game area
+# 48,40..207,183 transparent). Regenerate inside the build container:
+#   docker run --rm -v "$PWD":/src navalhunter \
+#     /opt/gbdk/bin/png2asset /src/art/border_sgb.png -map -bpp 4 \
+#     -max_palettes 4 -pack_mode sgb -use_map_attributes -c border_data.c
+# border_data.c is committed like gfx.h so a plain make needs no tools.
+border:
+	docker run --rm -v "$$PWD":/src -u $$(id -u):$$(id -g) navalhunter \
+	  /opt/gbdk/bin/png2asset /src/art/border_sgb.png -map -bpp 4 \
+	  -max_palettes 4 -pack_mode sgb -use_map_attributes -c border_data.c
 
 # Fleet-placement RULES, unit-tested on the host with plain gcc.
 # place.h has no GB dependencies, so this needs no emulator and runs in ~1 s.
