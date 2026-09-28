@@ -48,6 +48,7 @@
  * straight into the tilemap.
  */
 #include <gb/gb.h>
+#include <gb/sgb.h>
 #include <stdint.h>
 #include <rand.h>
 
@@ -745,6 +746,26 @@ void main(void) {
     /* Power up audio once, at boot. Register writes to a powered-down APU are
        ignored on hardware, so this has to happen before any sound request. */
     sound_init();
+
+    /* SGB palettes (Phase 4): recolour the game on a Super Game Boy. PAL01 sets
+       palettes 0 and 1 to a sea ramp -- light foam, grid blue, ship teal, deep
+       navy -- mapped from the same four shades the art was built from. DMG and
+       GBC fall through unchanged: the game stays 4-colour green as before.
+       Packet: header 0x01 (SGB_PAL_01, one packet), then 7 little-endian BGR555
+       words (bits 0-4 red, 5-9 green, 10-14 blue): shared colour 0 for pals 0+1,
+       then pal 0 #1-#3, then pal 1 #1-#3. sgb_check() before DISPLAY_ON. */
+    if (sgb_check()) {
+        static const uint8_t sgb_sea[16] = {
+            0x01,                                  /* PAL01, 1 packet */
+            0x99,0x6F,                             /* c0 foam   (25,30,27)  */
+            0x8C,0x4A,                             /* c1 grid   (12,20,18)  */
+            0xE5,0x2D,                             /* c2 ship   (5,15,11)   */
+            0x61,0x14,                             /* c3 navy   (1,3,5)     */
+            0x8C,0x4A, 0xE5,0x2D, 0x61,0x14,       /* pal 1 = pal 0 */
+            0x00                                   /* terminator (unused)   */
+        };
+        sgb_transfer((uint8_t *)sgb_sea);
+    }
 
     set_bkg_data(0, GFX_TILE_COUNT, gfx_tiles);
     set_sprite_data(0, 1, sprite_tiles);

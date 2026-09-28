@@ -145,11 +145,11 @@ int main(void) {
     CHECK(target[5 * 10 + 5] == 1, "hit queues below");
     CHECK(target[3 * 10 + 4] == 0, "diagonal not queued");
     {
-        uint8_t n = ai_next(&b);
+        uint8_t n = ai_next(&b, 1);
         CHECK(target[n] == 0, "ai_next consumed a queued cell");
         CHECK(n == 4 * 10 + 4 || n == 4 * 10 + 6 || n == 3 * 10 + 5 || n == 5 * 10 + 5,
               "ai_next returned a queued neighbour");
-        n = ai_next(&b);
+        n = ai_next(&b, 1);
         CHECK(target[n] == 0, "ai_next returned the next queued cell");
     }
 
