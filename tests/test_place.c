@@ -15,6 +15,40 @@
 static int fails = 0;
 #define CHECK(cond, msg) do { if (!(cond)) { printf("FAIL: %s\n", msg); fails++; } } while (0)
 
+/* Play one full solo game with the AI (queue + line following + hunt) against
+   a random fleet, firing at `hard ? ai_prob_pick : ai_hunt` when the queue is
+   empty. Returns the number of shots. Also enforces the invariant that every
+   partially hit ship always has a queued unfired hull cell to chase. */
+static int sim_game(Board *b, uint8_t hard) {
+    uint8_t s, i, shots = 0;
+    clear_board(b);
+    for (s = 0; s < NSHIP; s++)
+        if (!place_random_one(b, s)) return -1;        /* skip on fluke */
+    ai_clear_queue();
+    while (b->alive && shots < 200) {
+        /* same shot picker as ai_next(): queue first, then the chosen hunt */
+        uint8_t ei = 0xFF, q;
+        for (q = 0; q < 100; q++)
+            if (target[q]) { target[q] = 0; ei = q; break; }
+        if (ei == 0xFF) ei = hard ? ai_prob_pick(b) : ai_hunt(b);
+        uint8_t sunk = 0, r;
+        r = fire(b, (uint8_t)(ei % 10), (uint8_t)(ei / 10), &sunk);
+        shots++;
+        CHECK(r != 3, "sim: AI fired at a spent cell");
+        if (r == 1) ai_hit(b, b->own[(ei / 10) * 10 + ei % 10], (uint8_t)(ei % 10), (uint8_t)(ei / 10));
+        if (r == 2) ai_clear_queue();
+        /* invariant: a live partially-hit ship has a queued continuation */
+        for (s = 0; s < NSHIP; s++) {
+            uint8_t queued = 0;
+            if (b->hits[s] == 0 || b->hits[s] >= ship_len[s]) continue;
+            for (i = 0; i < 100; i++)
+                if (b->own[i] == s && b->st[i] == S_EMPTY && target[i]) queued = 1;
+            CHECK(queued, "sim: partially hit ship has no queued continuation");
+        }
+    }
+    return shots;
+}
+
 int main(void) {
     Board b;
     uint8_t i, t;
@@ -152,6 +186,40 @@ int main(void) {
            col 0..1 x rows 0..4 -- everything else is a legal shot */
         CHECK(!(idx % 10 <= 1 && idx / 10 <= 4), "hunt avoided a cell touching a sunk ship");
         if (fails) break;
+    }
+
+    /* ---- AI: probability hunt ---- */
+    /* MISS wall down column 0 -> the play space is cols 1-9, and the most
+       placements of the long ships pass through column 5. Unique argmax. */
+    clear_board(&b);
+    for (i = 0; i < 10; i++) b.st[i * 10] = S_MISS;
+    for (t = 0; t < 50; t++)
+        CHECK(ai_prob_pick(&b) % 10 == 5, "prob hunt prefers the densest column");
+
+    /* never fires a spent cell or a moated one */
+    clear_board(&b);
+    place_ship(&b, 0, 0, 4, 0, 1);
+    for (i = 0; i < 4; i++) b.st[i * 10] = S_SUNK;
+    b.hits[1] = 4; b.alive = 6;
+    for (t = 0; t < 200; t++) {
+        uint8_t idx = ai_prob_pick(&b);
+        CHECK(b.st[idx] == S_EMPTY, "prob hunt fired at an unfired cell");
+        CHECK(!(idx % 10 <= 1 && idx / 10 <= 4), "prob hunt avoided a moated cell");
+        if (fails) break;
+    }
+
+    /* strength: full solo games, HARD (prob) vs NORMAL (random) hunt, same
+       queue/target logic; HARD must win in clearly fewer shots */
+    {
+        int game, hard_total = 0, rand_total = 0;
+        for (game = 0; game < 100; game++) {
+            hard_total += sim_game(&b, 1);
+            rand_total += sim_game(&b, 0);
+        }
+        printf("sim: hard %d avg, random %d avg (100 games each)\n",
+               hard_total / 100, rand_total / 100);
+        CHECK(hard_total < rand_total - 500, "prob hunt clearly beats random hunt");
+        (void)hard_total; (void)rand_total;
     }
 
     printf("test_place: %s (%d failures)\n", fails ? "FAIL" : "PASS", fails);

@@ -99,17 +99,42 @@ static uint8_t place_random_one(Board *b, uint8_t s) {
     }
 }
 
+/* Fire at (x,y). Returns:
+ *   0 = miss
+ *   1 = hit
+ *   2 = hit + ship sunk
+ *   3 = ILLEGAL: that square was already fired at (caller must not consume a turn)
+ */
+static uint8_t fire(Board *b, uint8_t x, uint8_t y, uint8_t *sunk) {
+    uint8_t i = y * 10 + x, o;
+    if (b->st[i] != S_EMPTY) return 3;      /* already fired here */
+    o = b->own[i];
+    if (o == CELL_EMPTY) { b->st[i] = S_MISS; return 0; }
+
+    b->st[i] = S_HIT;
+    b->hits[o]++;
+    if (b->hits[o] >= ship_len[o]) {
+        uint8_t k;
+        for (k = 0; k < 100; k++) if (b->own[k] == o) b->st[k] = S_SUNK;
+        b->alive--;
+        *sunk = o;
+        return 2;
+    }
+    return 1;
+}
+
 /* ---------- computer opponent (pure logic, host-testable like the rules) ------
- * HUNT: fire at a random cell. A cell next to a KNOWN ship (hit or sunk) can
-   hold no ship -- ships never touch -- so those dead shots are skipped while
-   any other cell remains. The random start kills the old every-other-slot
-   parity rhythm; the moat rule replaces the accuracy it bought.
+ * HUNT: random cell. A cell next to a KNOWN ship (hit or sunk) can hold no
+   ship -- ships never touch -- so those dead shots are skipped while any
+   other cell remains. The random start kills the old every-other-slot parity
+   rhythm; the moat rule replaces the accuracy it bought.
+ * HARD HUNT: a probability map replaces the random hunt -- see ai_prob_pick.
  * TARGET: after a hit, try the four neighbours; once a second hit of the same
    ship is adjacent, the orientation is known and we extend the ship's line in
    both directions, the way a human finishes off a damaged ship.
  * target[] queues the cells to fire before hunting resumes; sinking the ship
    clears it, because every neighbour of a sunk ship is provably water.
- * ai_hunt() is only reached with an EMPTY queue, which means no ship is
+ * ai_next() is only a hunt with an EMPTY queue, which means no ship is
    partially hit -- so the moat check (st >= S_HIT, sunk only) is exact: it
    can never mark a live ship's continuation as dead.
  */
@@ -190,13 +215,60 @@ static uint8_t ai_hunt(const Board *b) {
     return 0;   /* only reachable once every cell has been fired */
 }
 
+/* HARD hunt: a probability map. For every still-alive ship, slide it across
+   every position and orientation and count the placements that could still
+   hold it; the cell covered by the most placements is the best next shot.
+   A placement fits only if every hull cell is unfired and the whole hull
+   respects the moat of every KNOWN ship cell (ships never touch).
+   # ponytail: per-ship counts ignore multi-ship mutual exclusion; the
+   # standard upgrade is iterative re-weighting, only if the sim shows misses
+   # in endgame parity with solvers. */
+static uint8_t ai_prob_pick(const Board *b) {
+    uint16_t score[100];
+    uint16_t bestv = 0;
+    uint8_t s, i, best = 0;
+    for (i = 0; i < 100; i++) score[i] = 0;
+    for (s = 0; s < NSHIP; s++) {
+        uint8_t len = ship_len[s], horiz;
+        if (b->hits[s] >= len) continue;               /* sunk */
+        for (horiz = 0; horiz <= 1; horiz++)
+            for (i = 0; i < 100; i++) {
+                uint8_t x = (uint8_t)(i % 10), y = (uint8_t)(i / 10);
+                uint8_t k, ok = 1;
+                if (horiz ? (x > 10 - len) : (y > 10 - len)) continue;
+                for (k = 0; k < len; k++) {
+                    uint8_t hx = horiz ? (uint8_t)(x + k) : x;
+                    uint8_t hy = horiz ? y : (uint8_t)(y + k);
+                    if (b->st[hy * 10 + hx] != S_EMPTY || ai_moated(b, hx, hy)) {
+                        ok = 0;
+                        break;
+                    }
+                }
+                if (ok)
+                    for (k = 0; k < len; k++)
+                        score[horiz ? (uint8_t)(y * 10 + x + k)
+                                    : (uint8_t)((y + k) * 10 + x)]++;
+            }
+    }
+    /* max score, random tiebreak via the random scan start */
+    {
+        uint8_t start = (uint8_t)(rand() % 100);
+        for (i = 0; i < 100; i++) {
+            uint8_t idx = (uint8_t)((start + i) % 100);
+            if (b->st[idx] != S_EMPTY) continue;       /* never re-fire */
+            if (score[idx] > bestv) { bestv = score[idx]; best = idx; }
+        }
+    }
+    return bestv ? best : ai_hunt(b);                  /* safety fallback */
+}
+
 /* Next shot: a queued follow-up if any, else a hunt. The queued cell is
    consumed so it is not fired twice. */
 static uint8_t ai_next(const Board *b) {
     uint8_t i;
     for (i = 0; i < 100; i++)
         if (target[i]) { target[i] = 0; return i; }
-    return ai_hunt(b);
+    return ai_prob_pick(b);
 }
 
 #endif /* PLACE_H */

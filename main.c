@@ -607,30 +607,7 @@ static void init_board(Board *b) {
     }
 }
 
-/* ---------- firing ---------- */
-/* Returns:
- *   0 = miss
- *   1 = hit
- *   2 = hit + ship sunk
- *   3 = ILLEGAL: that square was already fired at (caller must not consume a turn)
- */
-static uint8_t fire(Board *b, uint8_t x, uint8_t y, uint8_t *sunk) {
-    uint8_t i = y * 10 + x, o;
-    if (b->st[i] != S_EMPTY) return 3;      /* already fired here */
-    o = b->own[i];
-    if (o == CELL_EMPTY) { b->st[i] = S_MISS; return 0; }
-
-    b->st[i] = S_HIT;
-    b->hits[o]++;
-    if (b->hits[o] >= ship_len[o]) {
-        uint8_t k;
-        for (k = 0; k < 100; k++) if (b->own[k] == o) b->st[k] = S_SUNK;
-        b->alive--;
-        *sunk = o;
-        return 2;
-    }
-    return 1;
-}
+/* ---------- firing: fire() lives in place.h, tested on the host ---------- */
 
 /* ---------- computer AI: the rules live in place.h, tested on the host ------- */
 
