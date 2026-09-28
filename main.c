@@ -88,6 +88,11 @@ static uint8_t vram[360];
 #define ST_PLACING 1
 static uint8_t status_code = ST_PLAYING;
 
+/* AI difficulty, cycled with SELECT on the boot menu. The line-following
+   target chase is used at every level; only the hunt changes. */
+static const char *const level_name[3] = { "EASY", "NORMAL", "HARD" };
+static uint8_t ai_level = 1;
+
 static uint8_t view = 0;
 
 /* ---------- map painting ---------- */
@@ -410,13 +415,22 @@ static uint8_t choose_mode(void) {
     put_text(INFO, 0, "A=RANDOM");
     put_text(INFO, 10, "B=MANUAL");
     clear_row(HINT);
-    put_text(HINT, 0, "PICK A OR B");
+    put_text(HINT, 0, "SEL=LVL ");
+    put_text(HINT, 8, level_name[ai_level]);
     flush();
 
     for (;;) {
         uint8_t j = joypad();
         if (j & J_A) { while (joypad() & J_A) wait_vbl_done(); choice = 0; break; }
         if (j & J_B) { while (joypad() & J_B) wait_vbl_done(); choice = 1; break; }
+        if (j & J_SELECT) {
+            while (joypad() & J_SELECT) wait_vbl_done();
+            ai_level = (uint8_t)((ai_level + 1) % 3);
+            clear_row(HINT);
+            put_text(HINT, 0, "SEL=LVL ");
+            put_text(HINT, 8, level_name[ai_level]);
+            flush();
+        }
         wait_vbl_done();
     }
 
@@ -873,7 +887,7 @@ void main(void) {
         redraw();
         pause_frames(30);
 
-        ei = ai_next(&pb);
+        ei = ai_next(&pb, ai_level);
         ex = ei % 10; ey = ei / 10;
         move_cursor(ex, ey);
         r = fire(&pb, ex, ey, &sunk);

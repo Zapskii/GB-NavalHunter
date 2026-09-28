@@ -14,7 +14,7 @@ Python + Pillow on the build host.
 | Screen | Buttons |
 |---|---|
 | Title | **START** to begin |
-| Boot menu | **A** = random fleet, **B** = place your own |
+| Boot menu | **A** = random fleet, **B** = place your own, **SELECT** = AI level (EASY / NORMAL / HARD) |
 | Placing ships | D-pad move · **B** rotate · **A** commit · **START** randomise the rest |
 | In battle | D-pad aim · **A** fire · **SELECT** flip between enemy / your waters |
 | Game over | **START** play again · **SELECT** swap fleet view |

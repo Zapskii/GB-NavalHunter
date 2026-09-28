@@ -262,13 +262,27 @@ static uint8_t ai_prob_pick(const Board *b) {
     return bestv ? best : ai_hunt(b);                  /* safety fallback */
 }
 
-/* Next shot: a queued follow-up if any, else a hunt. The queued cell is
-   consumed so it is not fired twice. */
-static uint8_t ai_next(const Board *b) {
+/* EASY hunt: pure random unfired cell. */
+static uint8_t ai_random(const Board *b) {
+    uint8_t start = (uint8_t)(rand() % 100);
+    uint8_t i;
+    for (i = 0; i < 100; i++) {
+        uint8_t idx = (uint8_t)((start + i) % 100);
+        if (b->st[idx] == S_EMPTY) return idx;
+    }
+    return 0;
+}
+
+/* Next shot: a queued follow-up if any, else the hunt the player picked:
+   0 = EASY (random), 1 = NORMAL (moat-aware random), 2 = HARD (probability
+   map). The queued cell is consumed so it is not fired twice. */
+static uint8_t ai_next(const Board *b, uint8_t level) {
     uint8_t i;
     for (i = 0; i < 100; i++)
         if (target[i]) { target[i] = 0; return i; }
-    return ai_prob_pick(b);
+    return level == 0 ? ai_random(b)
+         : level == 1 ? ai_hunt(b)
+         :              ai_prob_pick(b);
 }
 
 #endif /* PLACE_H */
