@@ -41,7 +41,7 @@ Python + Pillow on the build host.
 Needs GBDK-2020 (tested with **4.5.0**). Point `GBDK_HOME` at your install:
 
 ```sh
-make            # -> navalhunter.gb
+make            # -> navalhunter-zap.gb
 make usage      # ROM/RAM usage breakdown
 make test       # host unit tests for the placement rules (plain gcc, ~1 s)
 ```

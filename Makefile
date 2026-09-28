@@ -10,7 +10,8 @@ LCC        = $(GBDK_HOME)/bin/lcc
 # GBDK's CRT does not initialise them -> the screen renders uniformly white.
 CFLAGS = -Wm-yn"NAVAL HUNTER"
 
-TARGET = navalhunter.gb
+# -zap suffix: this repo's builds, distinct from Coder2's navalhunter.gb
+TARGET = navalhunter-zap.gb
 SRC    = main.c
 
 all: $(TARGET)
