@@ -177,28 +177,101 @@ DMG_RGB = {                      # standard DMG palette, lightest -> darkest
     (15, 56, 15):   3,
 }
 SPLASH_SRC = (("win", "art/win.png"), ("lose", "art/lose.png"))
-# Title screen: two frames of the SAME art, differing only in the PRESS START
-# band (tile rows 14-15). Kept as one shared tileset + two maps rather than two
-# independent tilesets, because the frames share 186 of their 190 tiles -- two
-# separate sets would cost 360 tiles and blow the 256-tile VRAM limit outright.
-# main.c flashes the band by swapping maps, and only START leaves the screen.
-TITLE_SRC = (("on", "art/title_on.png"), ("off", "art/title_off.png"))
+# Title screen: the two supplied frames flash ONLY the PRESS START lettering,
+# keeping the surrounding wave pattern still -- see build_title_frames(), which
+# rebuilds the 'on' frame from the 'off' one instead of trusting the pair as-is.
+# They still share a single tileset, so the blink is a map swap with no VRAM
+# reload; two independent tilesets would not fit.
+
+def build_title_frames(on_path, off_path):
+    """Return (off_img, on_img) where the 'on' frame keeps the OFF frame's
+    decoration and only adds the lettering.
+
+    Why the supplied pair cannot be flashed as-is: the WHOLE band swaps. The
+    'on' frame is a plain strip either side of the word, while the 'off' frame
+    carries a full-width dashed wave through the band. Blinking between them
+    makes the wave appear and disappear -- the decoration flickers when only the
+    lettering should.
+
+    Detect the lettering by INK, not by differencing the two images. Every tile
+    in the band differs between the two frames (plain vs wave), so "which tiles
+    changed" cannot tell content from decoration: a full-width dashed line is
+    just as different as a letter.
+
+    The test that does work: for each tile ROW, look at the 'on' frame and ask
+    which tiles carry any non-background pixel.
+      - EVERY tile inked -> a full-width decorative line. Not content: leave it
+        to the OFF frame so it does not blink.
+      - Only SOME tiles inked -> that is the word. Those tiles are content, and
+        are overlaid from 'on'.
+    Structural rather than coordinate-based, so redrawn art still works as long
+    as the word has plain band either side of it.
+    """
+    off_img = Image.open(off_path).convert("RGB")
+    on_img = Image.open(on_path).convert("RGB")
+    if on_img.size != off_img.size:
+        raise SystemExit("title frames differ in size: %s vs %s"
+                         % (on_img.size, off_img.size))
+
+    W, H = off_img.size
+    ntx, nty = W // 8, H // 8
+
+    # tile rows that differ at all = the band worth rebuilding
+    band_rows = []
+    for ty in range(nty):
+        for tx in range(ntx):
+            a = [on_img.getpixel((tx * 8 + x, ty * 8 + y)) for y in range(8) for x in range(8)]
+            b = [off_img.getpixel((tx * 8 + x, ty * 8 + y)) for y in range(8) for x in range(8)]
+            if a != b:
+                band_rows.append(ty)
+                break
+    if not band_rows:
+        raise SystemExit("title frames: the two supplied images are identical")
+
+    # band background = most common colour in the 'on' frame across those rows
+    from collections import Counter
+    cnt = Counter()
+    for ty in band_rows:
+        for x in range(W):
+            for y in range(ty * 8, ty * 8 + 8):
+                cnt[on_img.getpixel((x, y))] += 1
+    bg = cnt.most_common(1)[0][0]
+
+    fixed = off_img.copy()
+    content = []
+    for ty in band_rows:
+        inked = []
+        for tx in range(ntx):
+            has_ink = any(on_img.getpixel((tx * 8 + x, ty * 8 + y)) != bg
+                          for y in range(8) for x in range(8))
+            if has_ink:
+                inked.append(tx)
+        if len(inked) == ntx:
+            continue                    # full-width line: decoration, keep 'off'
+        for tx in inked:                # the word: take from 'on'
+            for y in range(8):
+                for x in range(8):
+                    fixed.putpixel((tx * 8 + x, ty * 8 + y),
+                                   on_img.getpixel((tx * 8 + x, ty * 8 + y)))
+            content.append((tx, ty))
+    if not content:
+        raise SystemExit("title frames: found no lettering tiles to overlay -- "
+                         "check the two supplied images really differ in the word")
+    print("title  band bg %s, lettering tiles %d %s" % (bg, len(content), sorted(content)))
+    return off_img, fixed
 
 
 def load_splash_union(sources):
-    """Decode several same-screen PNGs into ONE deduped tileset + a map each.
+    """Decode several same-screen images into ONE deduped tileset + a map each.
 
-    `sources` is [(tag, path), ...] where every image is the same size and
+    `sources` is [(tag, PIL image), ...] where every image is the same size and
     palette. Returns (tiles, {tag: map}) with all images sharing one index
     space, so a single set_bkg_data covers every frame and switching frames is
     just a map swap. Tiles are emitted in first-seen order across the images in
     the order given, so 'on' comes first.
     """
     seen, order, maps = {}, [], {}
-    for tag, path in sources:
-        if not os.path.exists(path):
-            raise SystemExit("missing art: %s" % path)
-        im = Image.open(path).convert("RGB")
+    for tag, im in sources:
         px = im.load()
         mp = []
         for ty in range(im.size[1] // 8):
@@ -211,6 +284,7 @@ def load_splash_union(sources):
                 mp.append(seen[key])
         maps[tag] = mp
     return order, maps
+
 
 
 
@@ -385,7 +459,9 @@ def main():
         splash[tag] = (order_s, mp)
 
     # --- title screen: two frames sharing one tileset -----------------------
-    title_order, title_maps = load_splash_union(TITLE_SRC)
+    t_off, t_on = build_title_frames("art/title_on.png", "art/title_off.png")
+    title_order, title_maps = load_splash_union((("on", t_on), ("off", t_off)))
+
 
     flat = [b for t in tiles for b in t]
     h  = "/* AUTO-GENERATED by mkgfx.py -- do not hand-edit */\n"
@@ -428,9 +504,10 @@ def main():
     open("gfx.h", "w").write(h)
     for tag, (order_s, mp) in splash.items():
         print("splash %-4s %3d tiles, %d bytes" % (tag, len(order_s), len(order_s) * 16))
-    print("title  %3d tiles shared by 2 frames (%d bytes), budget %d + %d = %d of 256"
-          % (len(title_order), len(title_order) * 16, len(tiles), len(title_order),
-             len(tiles) + len(title_order)))
+    # The title set is NOT appended after the game tiles: main.c loads it at VRAM
+    # base 0, so it must fit on its own (game tiles are restored on exit).
+    print("title  %3d tiles shared by 2 frames (%d bytes), loads at base 0: %d of 256"
+          % (len(title_order), len(title_order) * 16, len(title_order)))
     print("glyphs %d, tiles %d, CELL %d MISS %d HIT %d SHIP %d | edges CELL L%d T%d TL%d"
           % (len(order), len(tiles), shape['CELL'], shape['MISS'], shape['HIT'], shape['SHIP'],
              shape['CELLL'], shape['CELLT'], shape['CELLTL']))
