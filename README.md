@@ -35,6 +35,8 @@ Python + Pillow on the build host.
 - End-of-game **full-screen art with a 5-second hold**, then the fleet reveal.
 - **Explosion sound** on a hit, a lower/longer one when a ship goes down, driven
   straight off the noise channel.
+- On a **Super Game Boy** (or any emulator with SGB support): a custom porthole
+  border (`art/border.png`) and a sea-coloured palette for the game window.
 
 ## Building
 
