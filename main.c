@@ -1,4 +1,4 @@
-/* BATTLESHIP for the Game Boy -- human vs computer.
+/* NAVAL HUNTER for the Game Boy -- human vs computer.
  *
  * Classic 10x10 rules (papg.com reference):
  *   fleet 5,4,3,2,2,1,1 (18 squares); ships never touch; turn-based;

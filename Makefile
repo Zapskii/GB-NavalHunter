@@ -1,14 +1,16 @@
-# BATTLESHIP (GBDK-2020)
+# NAVAL HUNTER (GBDK-2020)
 GBDK_HOME ?= /opt/gbdk
 LCC        = $(GBDK_HOME)/bin/lcc
 
-# -Wm-yn sets the ROM header title.
+# -Wm-yn sets the ROM header title. "Battleship" is Hasbro's trademark, so the
+# header carries the game's own name instead; the header field is 11-15 chars and
+# NAVAL HUNTER is 12, so nothing is truncated.
 # DO NOT add -Wm-yc (CGB-enhanced) unless you also load CGB palettes:
 # setting the CGB flag makes the emulator use the CGB palette registers, and
 # GBDK's CRT does not initialise them -> the screen renders uniformly white.
-CFLAGS = -Wm-yn"BATTLESHIP"
+CFLAGS = -Wm-yn"NAVAL HUNTER"
 
-TARGET = battleship.gb
+TARGET = navalhunter.gb
 SRC    = main.c
 
 all: $(TARGET)
