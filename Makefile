@@ -8,6 +8,9 @@ LCC        = $(GBDK_HOME)/bin/lcc
 # DO NOT add -Wm-yc (CGB-enhanced) unless you also load CGB palettes:
 # setting the CGB flag makes the emulator use the CGB palette registers, and
 # GBDK's CRT does not initialise them -> the screen renders uniformly white.
+# -Wm-ys sets the SGB flag (header 0x0146 = 0x03). REQUIRED for anything SGB:
+# the SGB BIOS silently discards every SGB packet unless it is set (and 0x014B
+# = 0x33, GBDK's default), and sgb_check() itself relies on packets.
 CFLAGS = -Wm-ys -Wm-yn"NAVAL HUNTER"
 
 # -zap suffix: this repo's builds, distinct from Coder2's navalhunter.gb
