@@ -682,6 +682,45 @@ static void sound_explosion(uint8_t big) {
     rAUD4GO   = 0x80;                         /* retrigger the channel          */
 }
 
+/* Short bright tick for a miss: the same noise voice as the explosion but with
+   a much higher LFSR clock (pitch) and a quiet, fast-decaying envelope. */
+static void sound_tick(void) {
+    rAUD4ENV  = 0x21;
+    rAUD4POLY = 0x71;
+    rAUD4GO   = 0x80;
+}
+
+/* Invert the background palette for ~0.13 s so a hit visibly lands on the
+   whole screen. Blocking is fine: a shot already costs a 45-frame pause. */
+#define BGP_NORMAL 0xE4
+#define BGP_FLASH  0x1B          /* 0<->3, 1<->2 */
+static void flash_hit(void) {
+    BGP_REG = BGP_FLASH;
+    pause_frames(8);
+    BGP_REG = BGP_NORMAL;
+}
+
+/* Game-over fanfare on channel 1 (square wave). Notes are raw 11-bit frequency
+   codes, f = 131072/(2048 - x) Hz: C5 E5 G5 C6 ascending for a win, C5 G4 E4 C4
+   descending for a loss. Blocking is fine: it plays once at game over, before
+   the splash starts its 5 s hold. */
+static const uint16_t jingle_win[]  = {1797, 1849, 1881, 1922};
+static const uint16_t jingle_lose[] = {1797, 1713, 1650, 1546};
+
+static void jingle(const uint16_t *notes) {
+    uint8_t i;
+    rAUDTERM = NOISE_TO_BOTH_SPEAKERS | AUDTERM_1_LEFT | AUDTERM_1_RIGHT;
+    rAUD1SWEEP = 0x00;                 /* no sweep */
+    rAUD1LEN   = 0x80;                 /* 50% duty */
+    rAUD1ENV   = 0x73;                 /* vol 7, decay */
+    for (i = 0; i < 4; i++) {
+        rAUD1LOW  = (uint8_t)(notes[i] & 0xFF);
+        rAUD1HIGH = (uint8_t)((notes[i] >> 8) | AUDHIGH_RESTART);
+        pause_frames(9);               /* ~0.15 s per note */
+    }
+    rAUD1ENV = 0x00;                   /* retire the channel */
+}
+
 void main(void) {
     uint8_t cx, cy;
 
@@ -833,15 +872,17 @@ void main(void) {
             flush();
             continue;
         }
-        if (r == 0)      { msg("MISS"); }
+        if (r == 0)      { msg("MISS"); sound_tick(); }
         else if (r == 1) { msg("HIT!"); sound_explosion(0); }
         else             { msg(""); put_text(MSG, 0, ship_name[sunk]); put_text(MSG, 11, "SUNK"); sound_explosion(1); }
         draw_board();
         draw_fleet();
         flush();
+        if (r) flash_hit();
         if (ob.alive == 0) {
             /* Big splash for 5 s, then the fleet reveal. game_over() returns
                only when the player presses START, which means "play again". */
+            jingle(jingle_win);
             splash_show(splash_win_tiles, SPLASH_WIN_TILES, splash_win_map);
             game_over("YOU WIN!");
             break;
@@ -871,13 +912,15 @@ void main(void) {
         }
         if (r == 1) ai_hit(&pb, pb.own[ey * 10 + ex], ex, ey);  /* follow the hit up */
         if (r == 2) ai_clear_queue();   /* ship gone: its queued cells are stale */
-        if (r == 0)      { msg("ENEMY MISS"); }
+        if (r == 0)      { msg("ENEMY MISS"); sound_tick(); }
         else if (r == 1) { msg("ENEMY HIT!"); sound_explosion(0); }
         else             { msg(""); put_text(MSG, 0, ship_name[sunk]); put_text(MSG, 11, "SUNK"); sound_explosion(1); }
         draw_board();
         draw_fleet();
         flush();
+        if (r) flash_hit();
         if (pb.alive == 0) {
+            jingle(jingle_lose);
             splash_show(splash_lose_tiles, SPLASH_LOSE_TILES, splash_lose_map);
             game_over("YOU LOSE");
             break;
