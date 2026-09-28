@@ -8,7 +8,7 @@ LCC        = $(GBDK_HOME)/bin/lcc
 # DO NOT add -Wm-yc (CGB-enhanced) unless you also load CGB palettes:
 # setting the CGB flag makes the emulator use the CGB palette registers, and
 # GBDK's CRT does not initialise them -> the screen renders uniformly white.
-CFLAGS = -Wm-yn"NAVAL HUNTER"
+CFLAGS = -Wm-ys -Wm-yn"NAVAL HUNTER"
 
 # -zap suffix: this repo's builds, distinct from Coder2's navalhunter.gb
 TARGET = navalhunter-zap.gb
