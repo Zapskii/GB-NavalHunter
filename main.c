@@ -743,7 +743,8 @@ static void jingle(const uint16_t *notes) {
 void main(void) {
     uint8_t cx, cy;
 
-    initrand((uint16_t)sys_time ^ 0xA55Au);
+    /* NOTE: the RNG is seeded inside the game loop, AFTER choose_mode() -- see
+       the comment there. Seeding at boot handed rand() a constant. */
 
     /* Power up audio once, at boot. Register writes to a powered-down APU are
        ignored on hardware, so this has to happen before any sound request. */
@@ -820,6 +821,15 @@ void main(void) {
     /* ---- boot menu: random fleet or place your own? ---- */
     {
         uint8_t manual = choose_mode();
+        /* Seed AFTER the first human input, not at boot. sys_time counts frames
+           since power-on and the boot ROM is a fixed length, so seeding at the
+           top of main() fed rand() the SAME value every power-on and both fleets
+           came out identical. choose_mode() blocks until the player presses a
+           button, so sys_time here is human timing -- the only entropy this
+           hardware has. rDIV adds the sub-frame phase a 60 Hz frame count
+           cannot see. Re-seeded per game on purpose: a replay deals fresh
+           fleets too, matching this loop's "freshly generated boards". */
+        initrand((uint16_t)(sys_time ^ rDIV ^ 0xA55Au));
         init_board(&ob);                       /* enemy fleet is always random */
         if (manual) place_fleet();             /* fills pb interactively */
         else        init_board(&pb);           /* or randomly, as before */
