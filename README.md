@@ -27,8 +27,10 @@ Python + Pillow on the build host.
   is hit.
 - Only room for one board on a 160x144 screen, so **SELECT flips** between the
   enemy waters you are shelling and your own waters.
-- The computer hunts on a parity pattern, then switches to sweeping the four
-  neighbours of any hit until the ship is dead.
+- The computer has three levels (**SELECT** on the boot menu): **EASY** fires at
+  random, **NORMAL** hunts moat-aware and sweeps the four neighbours of any hit,
+  following the line once the ship's orientation is known, and **HARD** aims at
+  the cell that the most still-possible ship placements would cover.
 - **START replays** from the game-over screen without a reset.
 - A **boot-only title screen** with a flashing PRESS START (the wave pattern
   either side of the word stays still — only the lettering blinks).
