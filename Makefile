@@ -37,10 +37,16 @@ gfx:
 #     /opt/gbdk/bin/png2asset /src/art/border_sgb.png -map -bpp 4 \
 #     -max_palettes 4 -pack_mode sgb -use_map_attributes -c border_data.c
 # border_data.c is committed like gfx.h so a plain make needs no tools.
+# Super Game Boy border packing (slot 0 reserved, limits checked) comes from
+# https://github.com/Zapskii/GB-SGB-Tooling, checked out beside this repo.
+SGB_TOOLING ?= ../GB-SGB-Tooling
+
 border:
-	docker run --rm -v "$$PWD":/src -u $$(id -u):$$(id -g) navalhunter \
-	  /opt/gbdk/bin/png2asset /src/art/border_sgb.png -map -bpp 4 \
-	  -max_palettes 4 -pack_mode sgb -use_map_attributes -c border_data.c
+	python3 $(SGB_TOOLING)/mkborder.py .border_packed.png --art art/border_sgb.png
+	docker run --rm -v "$$PWD":/src -w /src -u $$(id -u):$$(id -g) navalhunter \
+	  /opt/gbdk/bin/png2asset .border_packed.png -map -bpp 4 \
+	  -max_palettes 3 -keep_palette_order -pack_mode sgb -use_map_attributes -c border_data.c
+	rm -f .border_packed.png
 
 # Fleet-placement RULES, unit-tested on the host with plain gcc.
 # place.h has no GB dependencies, so this needs no emulator and runs in ~1 s.
