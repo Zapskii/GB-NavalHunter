@@ -1,4 +1,4 @@
-[Play online at retro.zapski.com](https://retro.zapski.com)
+🎮 [Play online](https://retro.zapski.com/play/navalhunter) · 📖 [Read the review](https://retro.zapski.com/blog/naval-hunter-game-boy-battleship) · [retro.zapski.com](https://retro.zapski.com)
 
 # NAVAL HUNTER
 
