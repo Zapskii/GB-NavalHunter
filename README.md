@@ -1,3 +1,5 @@
+[Play online at retro.zapski.com](https://retro.zapski.com)
+
 # NAVAL HUNTER
 
 A complete turn-based naval combat game for the original **Game Boy** (DMG),
