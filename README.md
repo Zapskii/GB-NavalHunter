@@ -33,6 +33,8 @@ Python + Pillow on the build host.
   random, **NORMAL** hunts moat-aware and sweeps the four neighbours of any hit,
   following the line once the ship's orientation is known, and **HARD** aims at
   the cell that the most still-possible ship placements would cover.
+- The computer only knows what you know: it never reads the hidden fleet, so at
+  a ship's end it tries the next square and takes the miss like you would.
 - **START replays** from the game-over screen without a reset.
 - A **boot-only title screen** with a flashing PRESS START (the wave pattern
   either side of the word stays still — only the lettering blinks).
@@ -49,7 +51,7 @@ Needs GBDK-2020 (tested with **4.5.0**). Point `GBDK_HOME` at your install:
 ```sh
 make            # -> navalhunter-zap.gb
 make usage      # ROM/RAM usage breakdown
-make test       # host unit tests for the placement rules (plain gcc, ~1 s)
+make test       # host unit tests for the placement rules and AI (plain gcc, ~1 s)
 ```
 
 The generated `gfx.h` is committed, so a plain `make` works with no other
@@ -64,7 +66,7 @@ python3 mkgfx.py    # rewrites gfx.h from art/*.png
 | File | What it is |
 |---|---|
 | `main.c` | The whole game: screens, turn loop, rendering, input, sound |
-| `place.h` | Fleet-placement rules. **No Game Boy dependencies**, so it is testable on the host |
+| `place.h` | Fleet-placement rules and the computer AI. **No Game Boy dependencies**, so it is testable on the host |
 | `tests/test_place.c` | Host unit tests for `place.h` (`make test`) |
 | `mkgfx.py` | Turns the PNG art into Game Boy tiles and generates `gfx.h` |
 | `gfx.h` | Generated tile data — do not hand-edit |
@@ -76,11 +78,11 @@ scrolls, so every element lives at a fixed tile row.
 
 ### Testing without an emulator
 
-The placement rules live in `place.h` with no hardware dependencies, so they are
-covered by an ordinary host `gcc` build:
+The placement rules and AI live in `place.h` with no hardware dependencies, so
+they are covered by an ordinary host `gcc` build:
 
 ```sh
-make test   # can_place / place_ship / ship_is_placed
+make test   # placement rules, AI target-chase, full solo-game sims
 ```
 
 Only the *rendering* of placement needs an emulator; the rules do not.
