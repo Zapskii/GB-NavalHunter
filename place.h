@@ -151,10 +151,12 @@ static void ai_queue(const Board *b, uint8_t x, uint8_t y) {
     target[y * 10 + x] = 1;
 }
 
-/* Queue the continuation of ship `o` along one axis from a hit at (x,y).
-   The walk steps over already-hit hull cells and stops at water, the edge,
-   or the first unfired hull cell (which it queues). */
-static void ai_extend(const Board *b, uint8_t o, uint8_t x, uint8_t y, uint8_t horiz) {
+/* Queue the continuation of the hit line along one axis from a hit at (x,y).
+   The walk steps over already-hit cells and queues the first unfired cell
+   beyond the run -- WITHOUT looking at own[]. A human only knows the hull so
+   far, so at a ship's end the AI must try the next cell and take the miss;
+   peeking at own[] skipped exactly those misses and was the old cheat. */
+static void ai_extend(const Board *b, uint8_t x, uint8_t y, uint8_t horiz) {
     int8_t sgn;
     for (sgn = -1; sgn <= 1; sgn += 2) {
         int8_t px = (int8_t)x, py = (int8_t)y;
@@ -162,25 +164,25 @@ static void ai_extend(const Board *b, uint8_t o, uint8_t x, uint8_t y, uint8_t h
             int8_t nx = horiz ? (int8_t)(px + sgn) : px;
             int8_t ny = horiz ? py : (int8_t)(py + sgn);
             if (nx < 0 || nx > 9 || ny < 0 || ny > 9) break;
-            if (b->own[ny * 10 + nx] != o) break;    /* water: the hull ended */
             if (b->st[ny * 10 + nx] == S_EMPTY) {
                 ai_queue(b, (uint8_t)nx, (uint8_t)ny);
                 break;
             }
-            px = nx; py = ny;                        /* another hit: walk past it */
+            if (b->st[ny * 10 + nx] != S_HIT) break;  /* a known miss: hull ended */
+            px = nx; py = ny;                         /* another hit: walk past it */
         }
     }
 }
 
-/* Follow-up after a hit on ship `o` at (x,y). Ships never touch, so any
-   adjacent hit is part of the same ship and reveals the orientation. */
-static void ai_hit(const Board *b, uint8_t o, uint8_t x, uint8_t y) {
+/* Follow-up after a hit at (x,y). Ships never touch, so any adjacent hit is
+   part of the same ship and reveals the orientation. */
+static void ai_hit(const Board *b, uint8_t x, uint8_t y) {
     uint8_t horiz = 0xFF;                            /* unknown */
     if ((x > 0 && b->st[y * 10 + x - 1] == S_HIT) ||
         (x < 9 && b->st[y * 10 + x + 1] == S_HIT)) horiz = 1;
     else if ((y > 0 && b->st[(y - 1) * 10 + x] == S_HIT) ||
              (y < 9 && b->st[(y + 1) * 10 + x] == S_HIT)) horiz = 0;
-    if (horiz != 0xFF) ai_extend(b, o, x, y, horiz);
+    if (horiz != 0xFF) ai_extend(b, x, y, horiz);
     else {
         ai_queue(b, (uint8_t)(x + 1), y); ai_queue(b, (uint8_t)(x - 1), y);
         ai_queue(b, x, (uint8_t)(y + 1)); ai_queue(b, x, (uint8_t)(y - 1));

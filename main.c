@@ -978,7 +978,7 @@ void main(void) {
             move_cursor(ex, ey);
             r = fire(&pb, ex, ey, &sunk);
         }
-        if (r == 1) ai_hit(&pb, pb.own[ey * 10 + ex], ex, ey);  /* follow the hit up */
+        if (r == 1) ai_hit(&pb, ex, ey);  /* follow the hit up */
         if (r == 2) ai_clear_queue();   /* ship gone: its queued cells are stale */
         last_enemy = (uint8_t)(ey * 10 + ex);
         if (r == 0)      { msg("ENEMY MISS"); sound_tick(); }

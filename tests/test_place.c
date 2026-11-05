@@ -35,7 +35,7 @@ static int sim_game(Board *b, uint8_t hard) {
         r = fire(b, (uint8_t)(ei % 10), (uint8_t)(ei / 10), &sunk);
         shots++;
         CHECK(r != 3, "sim: AI fired at a spent cell");
-        if (r == 1) ai_hit(b, b->own[(ei / 10) * 10 + ei % 10], (uint8_t)(ei % 10), (uint8_t)(ei / 10));
+        if (r == 1) ai_hit(b, (uint8_t)(ei % 10), (uint8_t)(ei / 10));
         if (r == 2) ai_clear_queue();
         /* invariant: a live partially-hit ship has a queued continuation */
         for (s = 0; s < NSHIP; s++) {
@@ -138,7 +138,7 @@ int main(void) {
     place_ship(&b, 4, 4, 3, 1, 2);            /* cruiser horizontal, row 4, cols 4-6 */
     b.st[4 * 10 + 5] = S_HIT; b.hits[2] = 1;
     ai_clear_queue();
-    ai_hit(&b, 2, 5, 4);
+    ai_hit(&b, 5, 4);
     CHECK(target[4 * 10 + 4] == 1, "hit queues left neighbour");
     CHECK(target[4 * 10 + 6] == 1, "hit queues right neighbour");
     CHECK(target[3 * 10 + 5] == 1, "hit queues above");
@@ -158,7 +158,7 @@ int main(void) {
     place_ship(&b, 2, 0, 5, 0, 0);            /* carrier vertical, col 2, rows 0-4 */
     b.st[2] = S_HIT; b.st[2 * 10 + 1] = S_HIT; b.hits[0] = 2;
     ai_clear_queue();
-    ai_hit(&b, 0, 2, 1);
+    ai_hit(&b, 2, 1);
     CHECK(target[2 * 10 + 2] == 1, "line extended down to the next hull cell");
     CHECK(target[1 * 10 + 1] == 0, "left diagonal not queued");
     CHECK(target[1 * 10 + 2] == 0, "left cross not queued");
@@ -170,9 +170,21 @@ int main(void) {
     b.st[2] = S_HIT; b.st[2 * 10 + 1] = S_HIT; b.st[2 * 10 + 2] = S_HIT;
     b.hits[0] = 3;
     ai_clear_queue();
-    ai_hit(&b, 0, 2, 1);
+    ai_hit(&b, 2, 1);
     CHECK(target[3 * 10 + 2] == 1, "walk passed 3 hits, queued the far end");
     CHECK(target[2 * 10 + 0] == 0, "already-hit cell not re-queued");
+
+    /* ---- AI: no peeking at own[]. Two hits at cols 4-5 of a ship that starts
+       at col 4 mean col 3 is water. A fair AI only knows the two hits, so it
+       must still try col 3; the old code read own[] and skipped it -- that is
+       the "knows where the ship ends" cheat. ---- */
+    clear_board(&b);
+    place_ship(&b, 4, 4, 3, 1, 2);
+    b.st[4 * 10 + 4] = S_HIT; b.st[4 * 10 + 5] = S_HIT; b.hits[2] = 2;
+    ai_clear_queue();
+    ai_hit(&b, 4, 4);
+    CHECK(target[4 * 10 + 3] == 1, "AI probes the cell past the hit run (no own[] peek)");
+    CHECK(target[4 * 10 + 6] == 1, "AI probes the other end of the run");
 
     /* ---- AI: hunt skips dead cells next to a sunk ship ---- */
     clear_board(&b);
